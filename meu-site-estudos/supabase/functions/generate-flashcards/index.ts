@@ -113,8 +113,8 @@ Deno.serve(async (req) => {
       text,
       upload_path,
       filename,
-      // opcional: permitir desligar gravação se quiser
-      save = true,
+      // opcional: salvar direto no banco (frontend já faz isso por padrão)
+      save = false,
     } = body || {};
 
     // ✅ limitar gasto/abuso
@@ -202,11 +202,12 @@ ${baseText}
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: "Responda apenas JSON válido." },
+          { role: "system", content: "Responda apenas JSON válido em array, sem markdown." },
           { role: "user", content: prompt },
         ],
         temperature: 0.2,
-        max_tokens: 1200, // ✅ limita gasto
+        response_format: { type: "json_object" },
+        max_tokens: 1600, // ✅ limite com folga para cards cloze
       }),
     });
 
@@ -216,11 +217,18 @@ ${baseText}
       throw new Error(result?.error?.message || "Erro OpenAI");
     }
 
-    const raw = result?.choices?.[0]?.message?.content || "[]";
-    const cardsRaw = safeJsonExtract(raw);
+    const raw = result?.choices?.[0]?.message?.content || "{}";
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = { cards: safeJsonExtract(raw) };
+    }
+
+    const cardsRaw = Array.isArray(parsed) ? parsed : parsed?.cards;
 
     // ✅ normalizar cards pra um formato consistente
-    const deck_id = crypto.randomUUID(); // ✅ IMPORTANTE: define aqui
+    const deck_id = crypto.randomUUID();
 
     const normalized = (Array.isArray(cardsRaw) ? cardsRaw : []).map((c: any) => ({
       tipo: c?.tipo === "cloze" ? "cloze" : "normal",
@@ -231,7 +239,7 @@ ${baseText}
       tags: Array.isArray(c?.tags) ? c.tags.map((t: any) => String(t)) : [],
     }));
 
-    const validCards = normalized.filter((c) => c.pergunta.length >= 3);
+    const validCards = normalized.filter((c) => (c.tipo === "cloze" ? !!(c.cloze_text && c.cloze_answer) : c.pergunta.length >= 3));
 
     // ✅ 3) Salvar no banco (RLS) como o usuário autenticado
     let saved = 0;
