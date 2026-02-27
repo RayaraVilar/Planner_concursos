@@ -224,6 +224,14 @@ Deno.serve(async (req) => {
       if (!subject_id)
         return json(400, { ok: false, error: "subject_id é obrigatório." });
 
+      const { data: subject, error: subjectError } = await supabaseAdmin
+        .from("flash_subjects")
+        .select("id, discipline_id")
+        .eq("id", subject_id)
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (subjectError || !subject)
       const subject = await existsWithFallback(
         supabaseAdmin,
         "flash_subjects",
@@ -237,6 +245,29 @@ Deno.serve(async (req) => {
           error: "Assunto inválido para este usuário.",
         });
 
+      try {
+        const { data } = await insertWithFallback(
+          supabaseAdmin,
+          "flash_topics",
+          { user_id: user.id, subject_id, nome },
+          { user_id: user.id, subject_id, name: nome }
+        );
+
+        return json(200, { ok: true, data });
+      } catch {
+        const { data } = await insertWithFallback(
+          supabaseAdmin,
+          "flash_topics",
+          { user_id: user.id, discipline_id: subject.discipline_id, nome },
+          { user_id: user.id, discipline_id: subject.discipline_id, name: nome }
+        );
+
+        return json(200, {
+          ok: true,
+          data,
+          meta: { fallback: "discipline_id" },
+        });
+      }
       const { data } = await insertWithFallback(
         supabaseAdmin,
         "flash_topics",
@@ -279,7 +310,7 @@ Deno.serve(async (req) => {
       const { data } = await insertWithFallback(
         supabaseAdmin,
         "flash_decks",
-        { user_id: user.id, subject_id, nome },
+        { user_id: user.id, topic_id: subject_id, nome },
         { user_id: user.id, topic_id: subject_id, name: nome }
       );
 
