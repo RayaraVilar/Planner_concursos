@@ -232,6 +232,14 @@ Deno.serve(async (req) => {
         .maybeSingle();
 
       if (subjectError || !subject)
+      const subject = await existsWithFallback(
+        supabaseAdmin,
+        "flash_subjects",
+        subject_id,
+        user.id
+      );
+
+      if (!subject)
         return json(403, {
           ok: false,
           error: "Assunto inválido para este usuário.",
@@ -260,6 +268,14 @@ Deno.serve(async (req) => {
           meta: { fallback: "discipline_id" },
         });
       }
+      const { data } = await insertWithFallback(
+        supabaseAdmin,
+        "flash_topics",
+        { user_id: user.id, subject_id, nome },
+        { user_id: user.id, subject_id, name: nome }
+      );
+
+      return json(200, { ok: true, data });
     }
 
     // =========================
