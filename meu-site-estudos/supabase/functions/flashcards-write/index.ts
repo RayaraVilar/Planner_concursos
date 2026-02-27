@@ -1,359 +1,274 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+type Json = Record<string, unknown>;
 
-function json(status: number, body: unknown) {
-  return new Response(JSON.stringify(body, null, 2), {
+function jsonResponse(status: number, body: Json) {
+  return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
   });
 }
 
-async function getUserFromAuthHeader(
-  req: Request,
-  supabaseUrl: string,
-  anonKey: string
-) {
-  const authHeader = req.headers.get("Authorization") || "";
-  const token = authHeader.replace("Bearer ", "").trim();
-
-  if (!token) {
-    return { user: null, error: "Missing Bearer token" };
-  }
-
-  const authClient = createClient(supabaseUrl, anonKey);
-  const {
-    data: { user },
-    error,
-  } = await authClient.auth.getUser(token);
-
-  if (error || !user) {
-    return { user: null, error: error?.message || "Invalid user token" };
-  }
-
-  return { user, error: null };
+function mustString(v: unknown, msg: string) {
+  const s = String(v ?? "").trim();
+  if (!s) throw new Error(msg);
+  return s;
 }
 
-async function insertWithFallback(
-  supabaseAdmin: ReturnType<typeof createClient>,
-  table: string,
-  primaryPayload: Record<string, unknown>,
-  legacyPayload: Record<string, unknown>
-) {
-  const { data, error } = await supabaseAdmin
-    .from(table)
-    .insert(primaryPayload)
-    .select("id")
-    .single();
-
-  if (!error) return { data, usedLegacy: false };
-
-  const { data: legacyData, error: legacyError } = await supabaseAdmin
-    .from(table)
-    .insert(legacyPayload)
-    .select("id")
-    .single();
-
-  if (legacyError) throw error;
-
-  return { data: legacyData, usedLegacy: true };
+function mustId(v: unknown, msg: string) {
+  const s = String(v ?? "").trim();
+  if (!s) throw new Error(msg);
+  return s;
 }
-
-async function existsWithFallback(
-  supabaseAdmin: ReturnType<typeof createClient>,
-  table: string,
-  id: string,
-  userId: string
-) {
-  const { data, error } = await supabaseAdmin
-    .from(table)
-    .select("id")
-    .eq("id", id)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (!error) return data;
-  return null;
-}
-
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS")
-    return new Response("ok", { headers: corsHeaders });
-
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
-    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get(
-      "SUPABASE_SERVICE_ROLE_KEY"
-    );
+    const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-    if (!SUPABASE_URL) throw new Error("Missing SUPABASE_URL");
-    if (!SUPABASE_ANON_KEY) throw new Error("Missing SUPABASE_ANON_KEY");
-    if (!SUPABASE_SERVICE_ROLE_KEY)
-      throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
-
-    const { user, error: authError } = await getUserFromAuthHeader(
-      req,
-      SUPABASE_URL,
-      SUPABASE_ANON_KEY
-    );
-
-    if (authError || !user)
-      return json(401, { ok: false, error: authError });
-
-    const rawBody = await req.text();
-    let body: Record<string, unknown> = {};
-
-    try {
-      body = rawBody ? JSON.parse(rawBody) : {};
-    } catch {
-      return json(400, { ok: false, error: "Body inválido." });
+    if (!SUPABASE_URL || !SERVICE_ROLE) {
+      return jsonResponse(500, { ok: false, error: "Missing Supabase env vars" });
     }
 
-    const action = String(body.action || "");
-    const nome = String(body.nome || "").trim();
+    const authHeader = req.headers.get("Authorization") || "";
+    const jwt = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
 
-    const supabaseAdmin = createClient(
-      SUPABASE_URL,
-      SUPABASE_SERVICE_ROLE_KEY
-    );
+    if (!jwt) return jsonResponse(401, { ok: false, error: "Missing Authorization Bearer token" });
 
-    // =========================
-    // CREATE COURSE
-    // =========================
-    if (action === "create_course") {
-      if (!nome)
-        return json(400, { ok: false, error: "Nome é obrigatório." });
-
-      const { data } = await insertWithFallback(
-        supabaseAdmin,
-        "flash_courses",
-        { user_id: user.id, nome },
-        { user_id: user.id, name: nome }
-      );
-
-      return json(200, { ok: true, data });
-    }
-
-    // =========================
-    // CREATE DISCIPLINE
-    // =========================
-    if (action === "create_discipline") {
-      const course_id = String(body.course_id || "");
-      if (!course_id)
-        return json(400, { ok: false, error: "course_id é obrigatório." });
-
-      const { data: course } = await supabaseAdmin
-        .from("flash_courses")
-        .select("id")
-        .eq("id", course_id)
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (!course)
-        return json(403, {
-          ok: false,
-          error: "Curso inválido para este usuário.",
-        });
-
-      const { data } = await insertWithFallback(
-        supabaseAdmin,
-        "flash_disciplines",
-        { user_id: user.id, course_id, nome },
-        { user_id: user.id, course_id, name: nome }
-      );
-
-      return json(200, { ok: true, data });
-    }
-
-    // =========================
-    // CREATE TOPIC
-    // =========================
-    if (action === "create_subject") {
-      const discipline_id = String(body.discipline_id || "");
-      if (!discipline_id)
-        return json(400, { ok: false, error: "discipline_id é obrigatório." });
-
-      const discipline = await existsWithFallback(
-        supabaseAdmin,
-        "flash_disciplines",
-        discipline_id,
-        user.id
-      );
-
-      if (!discipline)
-        return json(403, {
-          ok: false,
-          error: "Disciplina inválida para este usuário.",
-        });
-
-      try {
-        const { data } = await insertWithFallback(
-          supabaseAdmin,
-          "flash_subjects",
-          { user_id: user.id, discipline_id, nome },
-          { user_id: user.id, discipline_id, name: nome }
-        );
-
-        return json(200, { ok: true, data });
-      } catch {
-        const { data } = await insertWithFallback(
-          supabaseAdmin,
-          "flash_topics",
-          { user_id: user.id, discipline_id, nome },
-          { user_id: user.id, discipline_id, name: nome }
-        );
-
-        return json(200, { ok: true, data, meta: { table: "flash_topics" } });
-      }
-    }
-
-
-    // =========================
-    // CREATE TOPIC
-    // =========================
-    if (action === "create_topic") {
-      const subject_id = String(body.subject_id || "");
-      if (!subject_id)
-        return json(400, { ok: false, error: "subject_id é obrigatório." });
-
-      const { data: subject, error: subjectError } = await supabaseAdmin
-        .from("flash_subjects")
-        .select("id, discipline_id")
-        .eq("id", subject_id)
-        .eq("user_id", user.id)
-        .maybeSingle();
-
-      if (subjectError || !subject)
-        return json(403, {
-          ok: false,
-          error: "Assunto inválido para este usuário.",
-        });
-
-      try {
-        const { data } = await insertWithFallback(
-          supabaseAdmin,
-          "flash_topics",
-          { user_id: user.id, subject_id, nome },
-          { user_id: user.id, subject_id, name: nome }
-        );
-
-        return json(200, { ok: true, data });
-      } catch {
-        const { data } = await insertWithFallback(
-          supabaseAdmin,
-          "flash_topics",
-          { user_id: user.id, discipline_id: subject.discipline_id, nome },
-          { user_id: user.id, discipline_id: subject.discipline_id, name: nome }
-        );
-
-        return json(200, {
-          ok: true,
-          data,
-          meta: { fallback: "discipline_id" },
-        });
-      }
-    }
-
-    // =========================
-    // CREATE DECK
-    // =========================
-    if (action === "create_deck") {
-      const subject_id = String(body.subject_id || body.topic_id || "");
-      if (!subject_id)
-        return json(400, { ok: false, error: "subject_id é obrigatório." });
-
-      const topic = await existsWithFallback(
-        supabaseAdmin,
-        "flash_subjects",
-        subject_id,
-        user.id
-      );
-      const legacyTopic = topic
-        ? topic
-        : await existsWithFallback(
-            supabaseAdmin,
-            "flash_topics",
-            subject_id,
-            user.id
-          );
-
-      if (!legacyTopic)
-        return json(403, {
-          ok: false,
-          error: "Assunto inválido para este usuário.",
-        });
-
-      const { data } = await insertWithFallback(
-        supabaseAdmin,
-        "flash_decks",
-        { user_id: user.id, topic_id: subject_id, nome },
-        { user_id: user.id, topic_id: subject_id, name: nome }
-      );
-
-      return json(200, { ok: true, data });
-    }
-
-    // =========================
-    // CREATE CARD
-    // =========================
-    if (action === "create_card") {
-      const deck_id = String(body.deck_id || "");
-      if (!deck_id)
-        return json(400, { ok: false, error: "deck_id é obrigatório." });
-
-      const tipo = "normal";
-      const pergunta = String(body.pergunta || "").trim();
-      const resposta = String(body.resposta || "").trim();
-
-      if (!pergunta || !resposta)
-        return json(400, {
-          ok: false,
-          error: "pergunta/resposta são obrigatórias.",
-        });
-
-      const payload = {
-        user_id: user.id,
-        deck_id,
-        tipo,
-        pergunta,
-        resposta,
-        cloze_text: null,
-        cloze_answer: null,
-        tags: Array.isArray(body.tags)
-          ? body.tags.map((t) => String(t))
-          : [],
-        favoritos: false,
-      };
-
-      const { error } = await supabaseAdmin
-        .from("flash_cards")
-        .insert(payload);
-
-      if (error) {
-        const { favoritos, ...legacyBase } = payload;
-        const { error: legacyError } = await supabaseAdmin
-          .from("flash_cards")
-          .insert({ ...legacyBase, is_favorite: favoritos });
-
-        if (legacyError) throw error;
-      }
-
-      return json(200, { ok: true });
-    }
-
-    return json(400, { ok: false, error: "action inválida." });
-  } catch (e) {
-    return json(400, {
-      ok: false,
-      error: e instanceof Error ? e.message : String(e),
+    const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE, {
+      global: { headers: { Authorization: `Bearer ${jwt}` } },
     });
+
+    const { data: userRes, error: userErr } = await supabaseAdmin.auth.getUser(jwt);
+    if (userErr || !userRes?.user?.id) {
+      return jsonResponse(401, { ok: false, error: "Invalid session token" });
+    }
+
+    const user_id = userRes.user.id;
+
+    const body = (await req.json().catch(() => ({}))) as Json;
+    const action = String(body.action ?? "").trim();
+    if (!action) return jsonResponse(400, { ok: false, error: "Missing action" });
+
+    async function insert(table: string, values: Record<string, unknown>) {
+      const { data, error } = await supabaseAdmin.from(table).insert(values).select("id").single();
+      if (error) throw new Error(error.message);
+      return data?.id as string;
+    }
+
+    async function del(table: string, filter: Record<string, unknown>) {
+      let q = supabaseAdmin.from(table).delete().eq("user_id", user_id);
+      for (const [k, v] of Object.entries(filter)) q = q.eq(k, v);
+      const { error } = await q;
+      if (error) throw new Error(error.message);
+    }
+
+    async function deleteDeckCascade(deck_id: string) {
+      await del("flash_cards", { deck_id });
+      await del("flash_decks", { id: deck_id });
+    }
+
+    async function deleteTopicCascade(topic_id: string) {
+      const { data: decks, error: decksErr } = await supabaseAdmin
+        .from("flash_decks")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("topic_id", topic_id);
+
+      if (decksErr) throw new Error(decksErr.message);
+
+      for (const d of decks || []) {
+        await deleteDeckCascade(String(d.id));
+      }
+
+      await del("flash_topics", { id: topic_id });
+    }
+
+    async function deleteSubjectCascade(subject_id: string) {
+      const { data: topics, error: topicsErr } = await supabaseAdmin
+        .from("flash_topics")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("subject_id", subject_id);
+
+      if (topicsErr) throw new Error(topicsErr.message);
+
+      for (const t of topics || []) {
+        await deleteTopicCascade(String(t.id));
+      }
+
+      const { data: decks, error: decksErr } = await supabaseAdmin
+        .from("flash_decks")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("subject_id", subject_id);
+
+      if (!decksErr) {
+        for (const d of decks || []) {
+          await deleteDeckCascade(String(d.id));
+        }
+      }
+
+      await del("flash_subjects", { id: subject_id });
+    }
+
+    async function deleteDisciplineCascade(discipline_id: string) {
+      const { data: subs, error: subsErr } = await supabaseAdmin
+        .from("flash_subjects")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("discipline_id", discipline_id);
+
+      if (!subsErr) {
+        for (const s of subs || []) {
+          await deleteSubjectCascade(String(s.id));
+        }
+      }
+
+      const { data: legacyTopics, error: legacyErr } = await supabaseAdmin
+        .from("flash_topics")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("discipline_id", discipline_id);
+
+      if (!legacyErr) {
+        for (const t of legacyTopics || []) {
+          await deleteTopicCascade(String(t.id));
+        }
+      }
+
+      await del("flash_disciplines", { id: discipline_id });
+    }
+
+    async function deleteCourseCascade(course_id: string) {
+      const { data: discs, error: discErr } = await supabaseAdmin
+        .from("flash_disciplines")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("course_id", course_id);
+
+      if (discErr) throw new Error(discErr.message);
+
+      for (const d of discs || []) {
+        await deleteDisciplineCascade(String(d.id));
+      }
+
+      await del("flash_courses", { id: course_id });
+    }
+
+    switch (action) {
+      case "create_course": {
+        const nome = mustString(body.nome, "Nome do curso é obrigatório.");
+        const id = await insert("flash_courses", { user_id, nome });
+        return jsonResponse(200, { ok: true, data: { id } });
+      }
+
+      case "create_discipline": {
+        const nome = mustString(body.nome, "Nome da disciplina é obrigatório.");
+        const course_id = mustId(body.course_id, "course_id é obrigatório.");
+        const id = await insert("flash_disciplines", { user_id, nome, course_id });
+        return jsonResponse(200, { ok: true, data: { id } });
+      }
+
+      case "create_subject": {
+        const nome = mustString(body.nome, "Nome do assunto é obrigatório.");
+        const discipline_id = mustId(body.discipline_id, "discipline_id é obrigatório.");
+        const id = await insert("flash_subjects", { user_id, nome, discipline_id });
+        return jsonResponse(200, { ok: true, data: { id } });
+      }
+
+      case "create_topic_legacy": {
+        const nome = mustString(body.nome, "Nome do assunto (legado) é obrigatório.");
+        const discipline_id = mustId(body.discipline_id, "discipline_id é obrigatório.");
+        const id = await insert("flash_topics", { user_id, name: nome, discipline_id });
+        return jsonResponse(200, { ok: true, data: { id } });
+      }
+
+      case "create_topic": {
+        const nome = mustString(body.nome, "Nome do tópico é obrigatório.");
+        const subject_id = mustId(body.subject_id, "subject_id é obrigatório.");
+        const id = await insert("flash_topics", { user_id, name: nome, subject_id });
+        return jsonResponse(200, { ok: true, data: { id } });
+      }
+
+      case "create_deck": {
+        const nome = mustString(body.nome, "Nome do deck é obrigatório.");
+
+        const topic_id = String(body.topic_id ?? "").trim();
+        const subject_id = String(body.subject_id ?? "").trim();
+
+        if (!topic_id && !subject_id) {
+          throw new Error("topic_id (ou subject_id) é obrigatório para criar deck.");
+        }
+
+        const payload: Record<string, unknown> = { user_id, nome };
+        if (topic_id) payload.topic_id = topic_id;
+        if (subject_id) payload.subject_id = subject_id;
+
+        const id = await insert("flash_decks", payload);
+        return jsonResponse(200, { ok: true, data: { id } });
+      }
+
+      case "create_card": {
+        const deck_id = mustId(body.deck_id, "deck_id é obrigatório.");
+        const pergunta = mustString(body.pergunta, "Pergunta é obrigatória.");
+        const resposta = mustString(body.resposta, "Resposta é obrigatória.");
+        const tipo = String(body.tipo ?? "normal");
+        const tags = Array.isArray(body.tags) ? body.tags.slice(0, 8) : [];
+
+        const id = await insert("flash_cards", {
+          user_id,
+          deck_id,
+          tipo,
+          pergunta,
+          resposta,
+          tags,
+        });
+
+        return jsonResponse(200, { ok: true, data: { id } });
+      }
+
+      case "delete_course": {
+        const id = mustId(body.id, "id é obrigatório.");
+        await deleteCourseCascade(id);
+        return jsonResponse(200, { ok: true });
+      }
+
+      case "delete_discipline": {
+        const id = mustId(body.id, "id é obrigatório.");
+        await deleteDisciplineCascade(id);
+        return jsonResponse(200, { ok: true });
+      }
+
+      case "delete_subject": {
+        const id = mustId(body.id, "id é obrigatório.");
+        await deleteSubjectCascade(id);
+        return jsonResponse(200, { ok: true });
+      }
+
+      case "delete_topic": {
+        const id = mustId(body.id, "id é obrigatório.");
+        await deleteTopicCascade(id);
+        return jsonResponse(200, { ok: true });
+      }
+
+      case "delete_topic_legacy": {
+        const id = mustId(body.id, "id é obrigatório.");
+        await deleteTopicCascade(id);
+        return jsonResponse(200, { ok: true });
+      }
+
+      case "delete_deck": {
+        const id = mustId(body.id, "id é obrigatório.");
+        await deleteDeckCascade(id);
+        return jsonResponse(200, { ok: true });
+      }
+
+      default:
+        return jsonResponse(400, { ok: false, error: `Unknown action: ${action}` });
+    }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Unknown error";
+    return jsonResponse(500, { ok: false, error: message });
   }
 });
