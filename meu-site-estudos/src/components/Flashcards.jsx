@@ -1,6 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
-import { Brain, ChevronLeft, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
+import {
+    ChevronLeft,
+    Pencil,
+    Plus,
+    Sparkles,
+    Trash2,
+    Upload,
+} from "lucide-react";
+import * as pdfjsLib from "pdfjs-dist";
+
+// ✅ worker do pdfjs (Vite/React)
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/build/pdf.worker.min.js",
+    import.meta.url
+).toString();
 
 const initialTree = {
     courses: [],
@@ -32,7 +46,7 @@ function safeTags(text) {
         .slice(0, 8);
 }
 
-// ====== NOVO: “A partir dos erros” (colando Pergunta | Resposta) ======
+// ====== “A partir dos erros” (colando Pergunta | Resposta) ======
 function parsePairs(text) {
     const lines = String(text || "")
         .split("\n")
@@ -53,6 +67,48 @@ function parsePairs(text) {
     }
     return pairs.slice(0, 60);
 }
+
+// ====== UI (estilo do Matérias) ======
+const ui = {
+    wrap: "w-full max-w-3xl mx-auto",
+    headerTitle: "text-2xl font-black text-slate-900 dark:text-white",
+    headerSub: "text-sm text-slate-500 dark:text-slate-400",
+
+    btnEdit:
+        "flex items-center gap-2 px-4 py-2 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white transition font-black text-xs",
+    btnBack:
+        "flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition font-black text-xs",
+    btnPrimary:
+        "flex items-center gap-2 px-4 py-2 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white transition font-black text-xs disabled:opacity-60 disabled:cursor-not-allowed",
+    btnDark:
+        "px-4 py-2 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white transition font-black text-xs disabled:opacity-60 disabled:cursor-not-allowed",
+    btnGhost:
+        "px-4 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition font-black text-xs disabled:opacity-60 disabled:cursor-not-allowed",
+
+    panel:
+        "p-6 rounded-[32px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl",
+    panelSoft:
+        "p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm",
+
+    tile:
+        "w-full text-left flex items-center justify-between p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:bg-slate-50 dark:hover:bg-slate-800/60 transition",
+    tileTitle: "text-base font-black text-slate-900 dark:text-white",
+    tileMeta: "text-xs text-slate-500 dark:text-slate-400 font-bold",
+    iconMuted: "text-slate-400",
+
+    input:
+        "mt-2 w-full px-4 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold outline-none placeholder:text-slate-500 dark:placeholder:text-slate-500",
+    textarea:
+        "mt-2 w-full px-4 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold outline-none placeholder:text-slate-500 dark:placeholder:text-slate-500 min-h-[110px]",
+
+    overlay: "fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4",
+    modal:
+        "w-full max-w-2xl p-6 rounded-[32px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl",
+    modalCard:
+        "p-4 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition text-left",
+    modalTitle: "text-lg font-black text-slate-900 dark:text-white",
+    modalText: "text-xs text-slate-500 dark:text-slate-400 font-bold",
+};
 
 export default function Flashcards({ user }) {
     const userId = user?.id;
@@ -81,16 +137,17 @@ export default function Flashcards({ user }) {
     const [cardForm, setCardForm] = useState({ pergunta: "", resposta: "", tags: "" });
     const [aiForm, setAiForm] = useState({ text: "", qtd: 12, aggressiveness: "medio" });
 
-    // ====== NOVO: modal “Criar cards” ======
+    // Modal “Criar cards”
     const [createCardsOpen, setCreateCardsOpen] = useState(false);
     const [createMode, setCreateMode] = useState(""); // "" | "manual" | "errors" | "ai"
     const [errorsPaste, setErrorsPaste] = useState("");
     const [bulkLoading, setBulkLoading] = useState(false);
 
-    const selectedDeck = useMemo(
-        () => tree.decks.find((d) => d.id === deckId),
-        [tree.decks, deckId]
-    );
+    // ✅ PDF
+    const [pdfLoading, setPdfLoading] = useState(false);
+    const [pdfInfo, setPdfInfo] = useState("");
+
+    const selectedDeck = useMemo(() => tree.decks.find((d) => d.id === deckId), [tree.decks, deckId]);
 
     const breadcrumb = useMemo(() => {
         const parts = [{ key: "courses", label: "Cursos" }];
@@ -98,12 +155,8 @@ export default function Flashcards({ user }) {
         if (courseId) parts.push({ key: "disciplines", label: "Disciplinas" });
         if (disciplineId) parts.push({ key: "subjects", label: "Assuntos" });
 
-        // só mostra Tópicos se NÃO for legado
         if (!isLegacySubjects && subjectId) parts.push({ key: "topics", label: "Tópicos" });
 
-        // decks aparece quando temos base pra decks:
-        // - normal: topicId
-        // - legado: subjectId (que na prática é um topic)
         const decksReady = isLegacySubjects ? Boolean(subjectId) : Boolean(topicId);
         if (decksReady) parts.push({ key: "decks", label: "Decks" });
 
@@ -119,7 +172,7 @@ export default function Flashcards({ user }) {
         return token;
     }
 
-    // ✅ callWrite melhorado: mostra erro REAL (não só “non-2xx”)
+    // callWrite melhorado: mostra erro REAL
     async function callWrite(action, payload) {
         const token = await getTokenOrThrow();
 
@@ -195,7 +248,6 @@ export default function Flashcards({ user }) {
         async (discipline_id) => {
             setLoading(true);
             try {
-                // tenta subjects (moderno)
                 const res = await supabase
                     .from("flash_subjects")
                     .select("id,nome,discipline_id,created_at")
@@ -209,7 +261,6 @@ export default function Flashcards({ user }) {
                     return;
                 }
 
-                // fallback legado: usa topics como “subjects”
                 const legacy = await supabase
                     .from("flash_topics")
                     .select("id,name,discipline_id,created_at")
@@ -255,9 +306,6 @@ export default function Flashcards({ user }) {
 
     const loadDecks = useCallback(
         async (baseId) => {
-            // baseId:
-            // - modo normal: topicId
-            // - modo legado: subjectId (que na prática é um topic)
             setLoading(true);
             try {
                 const modern = await supabase
@@ -312,6 +360,7 @@ export default function Flashcards({ user }) {
     // init
     useEffect(() => {
         if (!userId) return;
+
         setTree(initialTree);
         setLevel("courses");
 
@@ -324,10 +373,12 @@ export default function Flashcards({ user }) {
         setIsLegacySubjects(false);
         setNewName("");
 
-        // modal states
         setCreateCardsOpen(false);
         setCreateMode("");
         setErrorsPaste("");
+
+        setPdfInfo("");
+        setPdfLoading(false);
 
         loadCourses();
     }, [userId, loadCourses]);
@@ -340,14 +391,7 @@ export default function Flashcards({ user }) {
             setTopicId("");
             setDeckId("");
             setIsLegacySubjects(false);
-            setTree((p) => ({
-                ...p,
-                disciplines: [],
-                subjects: [],
-                topics: [],
-                decks: [],
-                cards: [],
-            }));
+            setTree((p) => ({ ...p, disciplines: [], subjects: [], topics: [], decks: [], cards: [] }));
             return;
         }
 
@@ -387,14 +431,13 @@ export default function Flashcards({ user }) {
         }
     }
 
-    // navegar para dentro
     async function enter(nextLevel, id) {
         setNewName("");
 
-        // Fechar modal de criação se estiver aberto
         setCreateCardsOpen(false);
         setCreateMode("");
         setErrorsPaste("");
+        setPdfInfo("");
 
         if (nextLevel === "disciplines") {
             setCourseId(id);
@@ -441,14 +484,13 @@ export default function Flashcards({ user }) {
         }
     }
 
-    // botão voltar
     function goBack() {
         setNewName("");
 
-        // Fechar modal de criação se estiver aberto
         setCreateCardsOpen(false);
         setCreateMode("");
         setErrorsPaste("");
+        setPdfInfo("");
 
         if (level === "cards") {
             setDeckId("");
@@ -502,7 +544,6 @@ export default function Flashcards({ user }) {
         }
     }
 
-    // qual lista mostrar na tela atual
     const currentList = useMemo(() => {
         if (level === "courses") return tree.courses;
         if (level === "disciplines") return tree.disciplines;
@@ -512,7 +553,6 @@ export default function Flashcards({ user }) {
         return [];
     }, [level, tree]);
 
-    // qual o próximo nível quando clicar num item
     function nextLevelForCurrent() {
         if (level === "courses") return "disciplines";
         if (level === "disciplines") return "subjects";
@@ -522,7 +562,6 @@ export default function Flashcards({ user }) {
         return null;
     }
 
-    // criar item no nível atual
     async function createHere() {
         const name = newName.trim();
         if (!name) return;
@@ -580,7 +619,7 @@ export default function Flashcards({ user }) {
                 await callWrite("create_deck", {
                     nome: name,
                     topic_id: topicId,
-                    subject_id: subjectId || null, // ✅ correto: subjectId
+                    subject_id: subjectId || null,
                 });
                 setNewName("");
                 await loadDecks(topicId);
@@ -591,7 +630,6 @@ export default function Flashcards({ user }) {
         }
     }
 
-    // deletar item (modo edição)
     async function deleteHere(id, nome) {
         if (!confirm(`Apagar "${nome}"? Isso também apagará os itens abaixo.`)) return;
 
@@ -623,7 +661,6 @@ export default function Flashcards({ user }) {
         }
     }
 
-    // criar card manual (mantido)
     async function createCard() {
         if (!deckId) return alert("Entre em um deck.");
         const pergunta = cardForm.pergunta.trim();
@@ -646,7 +683,6 @@ export default function Flashcards({ user }) {
         }
     }
 
-    // gerar por IA (mantido)
     async function generateWithAI() {
         if (!deckId) return alert("Entre em um deck antes de gerar por IA.");
         if (!aiForm.text.trim()) return alert("Cole um texto base para a IA.");
@@ -658,6 +694,10 @@ export default function Flashcards({ user }) {
                 body: { text: aiForm.text, qtd: Number(aiForm.qtd || 12), aggressiveness: aiForm.aggressiveness },
                 headers: { Authorization: `Bearer ${token}` },
             });
+
+            // ✅ Loga o erro real
+            if (error) console.error("generate-flashcards invoke error:", error);
+            if (data && !data.ok) console.error("generate-flashcards response:", data);
 
             if (error || !data?.ok) {
                 const msg =
@@ -704,7 +744,6 @@ export default function Flashcards({ user }) {
         }
     }
 
-    // ====== NOVO: criar cards a partir dos “erros” colados ======
     async function createCardsFromErrorsPaste() {
         if (!deckId) return alert("Entre em um deck.");
         const pairs = parsePairs(errorsPaste);
@@ -739,6 +778,41 @@ export default function Flashcards({ user }) {
         }
     }
 
+    // ✅ Extrair texto do PDF e jogar no aiForm.text
+    async function handlePdfUpload(file) {
+        if (!file) return;
+        if (file.type !== "application/pdf") return alert("Envie um arquivo PDF.");
+
+        setPdfLoading(true);
+        setPdfInfo(`Lendo PDF: ${file.name}...`);
+
+        try {
+            const ab = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+
+            let text = "";
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+                const content = await page.getTextContent();
+                const strings = content.items.map((it) => it.str);
+                text += strings.join(" ") + "\n";
+            }
+
+            const cleaned = text.replace(/\s+/g, " ").trim();
+            const maxChars = 15000; // limite pra não explodir tokens
+            const clipped = cleaned.slice(0, maxChars);
+
+            setAiForm((p) => ({ ...p, text: clipped }));
+            setPdfInfo(`✅ PDF carregado (${pdf.numPages} páginas). Texto extraído e aplicado.`);
+        } catch (e) {
+            console.error(e);
+            alert("Não consegui ler esse PDF. Tente outro arquivo (ou um PDF com texto selecionável).");
+            setPdfInfo("");
+        } finally {
+            setPdfLoading(false);
+        }
+    }
+
     const showBack = level !== "courses";
     const title = LEVEL_LABEL[level];
 
@@ -752,26 +826,27 @@ export default function Flashcards({ user }) {
             (level === "decks" && (isLegacySubjects ? subjectId : topicId)));
 
     return (
-        <div className="space-y-4">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-                <h2 className="font-semibold text-lg flex items-center gap-2">
-                    <Brain size={18} /> Flashcards
-                </h2>
+        <div className={ui.wrap}>
+            {/* Top header */}
+            <div className="flex items-center justify-between mb-6">
+                <div>
+                    <h2 className={ui.headerTitle}>Flashcards</h2>
+                    <p className={ui.headerSub}>Cursos → disciplinas → assuntos → tópicos → decks → cards</p>
+                </div>
 
-                <button
-                    onClick={() => setEditMode((v) => !v)}
-                    className="px-3 py-2 rounded-lg bg-cyan-600 text-white flex items-center gap-2"
-                >
+                <button onClick={() => setEditMode((v) => !v)} className={ui.btnEdit}>
                     <Pencil size={16} /> {editMode ? "Sair da edição" : "Modo edição"}
                 </button>
             </div>
 
-            {/* Breadcrumb + back */}
-            <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 text-sm text-slate-600 flex-wrap">
-                    {breadcrumb.map((b, idx) => (
-                        <span key={b.key} className={b.key === level ? "text-slate-900 font-semibold" : ""}>
+            {/* Breadcrumb + Back */}
+            <div className="flex items-center justify-between gap-3 mb-4">
+                <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 flex-wrap font-bold">
+                    {[...breadcrumb].map((b, idx) => (
+                        <span
+                            key={b.key}
+                            className={b.key === level ? "text-slate-900 dark:text-white font-black" : ""}
+                        >
                             {idx > 0 ? " / " : ""}
                             {b.label}
                         </span>
@@ -779,199 +854,226 @@ export default function Flashcards({ user }) {
                 </div>
 
                 {showBack && (
-                    <button onClick={goBack} className="px-3 py-2 rounded-lg border flex items-center gap-2">
+                    <button onClick={goBack} className={ui.btnBack}>
                         <ChevronLeft size={16} /> Voltar
                     </button>
                 )}
             </div>
 
-            {/* Create item on this level */}
+            {/* Create on this level */}
             {editMode && level !== "cards" && (
-                <div className="flex gap-2">
-                    <input
-                        value={newName}
-                        onChange={(e) => setNewName(e.target.value)}
-                        placeholder={`Novo ${title.slice(0, -1)}...`}
-                        className="w-full px-3 py-2 rounded-lg border"
-                    />
-                    <button
-                        onClick={createHere}
-                        disabled={!canCreate}
-                        className="px-3 py-2 rounded-lg border disabled:opacity-60 disabled:cursor-not-allowed"
-                        title="Adicionar"
-                    >
-                        <Plus size={16} />
-                    </button>
+                <div className={`${ui.panelSoft} mb-4`}>
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                        Criar em: {title}
+                    </label>
+
+                    <div className="flex gap-2 mt-3">
+                        <input
+                            value={newName}
+                            onChange={(e) => setNewName(e.target.value)}
+                            placeholder={`Novo ${title.slice(0, -1)}...`}
+                            className={ui.input.replace("mt-2 ", "")}
+                        />
+
+                        <button onClick={createHere} disabled={!canCreate} className={ui.btnGhost} title="Adicionar">
+                            <Plus size={16} />
+                        </button>
+                    </div>
                 </div>
             )}
 
-            {/* Main container */}
-            <div className="rounded-xl border p-4">
+            {/* Main */}
+            <div className={ui.panel}>
                 <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-semibold">{title}</h3>
-                    {loading && <span className="text-sm text-slate-500">Carregando...</span>}
+                    <h3 className="text-xl font-black text-slate-900 dark:text-white">{title}</h3>
+                    {loading && (
+                        <span className="text-sm text-slate-500 dark:text-slate-400 font-bold animate-pulse">
+                            Carregando...
+                        </span>
+                    )}
                 </div>
 
-                {/* ===== LISTAS DOS NÍVEIS ===== */}
+                {/* Lists */}
                 {level !== "cards" ? (
                     !currentList.length ? (
-                        <p className="text-sm text-slate-500">Nada por aqui ainda.</p>
+                        <div className="p-8 rounded-[32px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-center">
+                            <p className="font-black text-slate-700 dark:text-slate-200">Nada por aqui ainda.</p>
+                            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                                Use o modo edição para criar itens.
+                            </p>
+                        </div>
                     ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div className="space-y-3">
                             {currentList.map((item) => {
                                 const next = nextLevelForCurrent();
+
                                 return (
                                     <button
                                         key={item.id}
                                         onClick={() => next && enter(next, item.id)}
-                                        className="text-left p-4 rounded-xl border hover:bg-slate-50 transition relative"
+                                        className={ui.tile}
                                     >
-                                        <div className="font-semibold pr-10">{item.nome}</div>
-                                        <div className="text-xs text-slate-500 mt-1">Clique para abrir</div>
+                                        {/* ✅ REMOVIDA a “etiqueta azul” (a barrinha). Mantive só o texto. */}
+                                        <div className="flex items-center gap-3 text-left">
+                                            <div>
+                                                <p className={ui.tileTitle}>{item.nome}</p>
+                                                <p className={ui.tileMeta}>Clique para abrir</p>
+                                            </div>
+                                        </div>
 
-                                        {editMode && (
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    deleteHere(item.id, item.nome);
-                                                }}
-                                                className="absolute top-3 right-3 px-2 py-1 rounded-md border bg-white hover:bg-slate-100"
-                                                title="Apagar"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        )}
+                                        <div className="flex items-center gap-3">
+                                            {editMode && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        deleteHere(item.id, item.nome);
+                                                    }}
+                                                    className={ui.btnGhost}
+                                                    title="Apagar"
+                                                >
+                                                    <Trash2 size={16} className="text-slate-600 dark:text-slate-200" />
+                                                </button>
+                                            )}
+
+                                            <span className={ui.iconMuted}>›</span>
+                                        </div>
                                     </button>
                                 );
                             })}
                         </div>
                     )
                 ) : (
-                    // ===== CARDS SCREEN =====
+                    // Cards screen
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
-                            <div className="text-sm text-slate-600">
-                                Deck: <span className="font-semibold">{selectedDeck?.nome || "-"}</span>
+                            <div className="text-sm text-slate-500 dark:text-slate-400 font-bold">
+                                Deck:{" "}
+                                <span className="text-slate-900 dark:text-white font-black">
+                                    {selectedDeck?.nome || "-"}
+                                </span>
                             </div>
 
-                            {/* ✅ Só aparece se estiver em modo edição */}
                             {editMode && (
                                 <button
                                     onClick={() => {
                                         setCreateCardsOpen(true);
                                         setCreateMode("");
+                                        setPdfInfo("");
                                     }}
-                                    className="px-3 py-2 rounded-lg bg-slate-900 text-white"
+                                    className={ui.btnDark}
                                 >
                                     Criar cards
                                 </button>
                             )}
                         </div>
 
-                        {/* Lista sempre visível */}
-                        <div className="rounded-xl border p-4">
-                            <h4 className="font-semibold mb-2">Cards deste deck</h4>
+                        <div className={ui.panelSoft}>
+                            <h4 className="text-base font-black text-slate-900 dark:text-white mb-3">
+                                Cards deste deck
+                            </h4>
+
                             {!tree.cards.length ? (
-                                <p className="text-sm text-slate-500">Nenhum card ainda.</p>
+                                <p className="text-sm text-slate-500 dark:text-slate-400 font-bold">
+                                    Nenhum card ainda.
+                                </p>
                             ) : (
-                                <ul className="space-y-2 max-h-[380px] overflow-y-auto">
+                                <ul className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
                                     {tree.cards.map((card) => (
-                                        <li key={card.id} className="border rounded-lg p-3">
-                                            <p className="font-medium">{card.pergunta}</p>
-                                            <p className="text-sm text-slate-600 mt-1">{card.resposta}</p>
+                                        <li
+                                            key={card.id}
+                                            className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+                                        >
+                                            <p className="font-black text-slate-900 dark:text-white">{card.pergunta}</p>
+                                            <p className="text-sm text-slate-600 dark:text-slate-300 mt-2 font-bold">
+                                                {card.resposta}
+                                            </p>
                                         </li>
                                     ))}
                                 </ul>
                             )}
                         </div>
 
-                        {/* ===== MODAL CRIAR CARDS ===== */}
+                        {/* Modal */}
                         {createCardsOpen && (
-                            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-                                <div className="w-full max-w-2xl rounded-2xl bg-white p-4 border shadow-lg space-y-4">
+                            <div className={ui.overlay}>
+                                <div className={ui.modal}>
                                     <div className="flex items-center justify-between">
-                                        <h4 className="font-semibold">Como você quer criar os cards?</h4>
+                                        <h4 className={ui.modalTitle}>Como você quer criar os cards?</h4>
                                         <button
                                             onClick={() => {
                                                 setCreateCardsOpen(false);
                                                 setCreateMode("");
+                                                setPdfInfo("");
                                             }}
-                                            className="px-3 py-2 rounded-lg border"
+                                            className={ui.btnBack}
                                         >
                                             Fechar
                                         </button>
                                     </div>
 
-                                    {/* Escolha */}
                                     {!createMode && (
-                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                            <button
-                                                onClick={() => setCreateMode("manual")}
-                                                className="p-4 rounded-xl border hover:bg-slate-50 text-left"
-                                            >
-                                                <div className="font-semibold">Manual</div>
-                                                <div className="text-xs text-slate-500 mt-1">Você escreve pergunta e resposta</div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+                                            <button onClick={() => setCreateMode("manual")} className={ui.modalCard}>
+                                                <div className="font-black text-slate-900 dark:text-white">Manual</div>
+                                                <div className={ui.modalText}>Você escreve pergunta e resposta</div>
                                             </button>
 
-                                            <button
-                                                onClick={() => setCreateMode("errors")}
-                                                className="p-4 rounded-xl border hover:bg-slate-50 text-left"
-                                            >
-                                                <div className="font-semibold">A partir dos erros</div>
-                                                <div className="text-xs text-slate-500 mt-1">
-                                                    Cole “Pergunta | Resposta” (um por linha)
+                                            <button onClick={() => setCreateMode("errors")} className={ui.modalCard}>
+                                                <div className="font-black text-slate-900 dark:text-white">
+                                                    A partir dos erros
                                                 </div>
+                                                <div className={ui.modalText}>Cole “Pergunta | Resposta” (1 por linha)</div>
                                             </button>
 
-                                            <button
-                                                onClick={() => setCreateMode("ai")}
-                                                className="p-4 rounded-xl border hover:bg-slate-50 text-left"
-                                            >
-                                                <div className="font-semibold flex items-center gap-2">
+                                            <button onClick={() => setCreateMode("ai")} className={ui.modalCard}>
+                                                <div className="font-black text-slate-900 dark:text-white flex items-center gap-2">
                                                     <Sparkles size={16} /> IA
                                                 </div>
-                                                <div className="text-xs text-slate-500 mt-1">Cole um texto e gere automaticamente</div>
+                                                <div className={ui.modalText}>Cole um texto ou use PDF</div>
                                             </button>
                                         </div>
                                     )}
 
-                                    {/* Manual */}
                                     {createMode === "manual" && (
-                                        <div className="space-y-3">
+                                        <div className="mt-4">
                                             <div className="flex items-center justify-between">
-                                                <div className="font-semibold">Criar manual</div>
-                                                <button onClick={() => setCreateMode("")} className="text-sm underline">
+                                                <div className="font-black text-slate-900 dark:text-white">Criar manual</div>
+                                                <button
+                                                    onClick={() => setCreateMode("")}
+                                                    className="text-sm font-black underline text-slate-600 dark:text-slate-300"
+                                                >
                                                     Voltar
                                                 </button>
                                             </div>
 
                                             <input
-                                                className="w-full px-3 py-2 rounded-lg border"
+                                                className={ui.input}
                                                 placeholder="Pergunta"
                                                 value={cardForm.pergunta}
                                                 onChange={(e) => setCardForm((p) => ({ ...p, pergunta: e.target.value }))}
                                             />
                                             <textarea
-                                                className="w-full px-3 py-2 rounded-lg border min-h-[90px]"
+                                                className={ui.textarea}
                                                 placeholder="Resposta"
                                                 value={cardForm.resposta}
                                                 onChange={(e) => setCardForm((p) => ({ ...p, resposta: e.target.value }))}
                                             />
                                             <input
-                                                className="w-full px-3 py-2 rounded-lg border"
+                                                className={ui.input}
                                                 placeholder="tags (separadas por vírgula)"
                                                 value={cardForm.tags}
                                                 onChange={(e) => setCardForm((p) => ({ ...p, tags: e.target.value }))}
                                             />
 
-                                            <div className="flex gap-2 justify-end">
+                                            <div className="flex justify-end mt-4">
                                                 <button
                                                     onClick={async () => {
                                                         await createCard();
                                                         setCreateCardsOpen(false);
                                                         setCreateMode("");
+                                                        setPdfInfo("");
                                                     }}
-                                                    className="px-4 py-2 rounded-lg bg-slate-900 text-white"
+                                                    className={ui.btnPrimary}
                                                 >
                                                     Salvar card
                                                 </button>
@@ -979,38 +1081,43 @@ export default function Flashcards({ user }) {
                                         </div>
                                     )}
 
-                                    {/* A partir dos erros */}
                                     {createMode === "errors" && (
-                                        <div className="space-y-3">
+                                        <div className="mt-4">
                                             <div className="flex items-center justify-between">
-                                                <div className="font-semibold">Criar a partir dos erros</div>
-                                                <button onClick={() => setCreateMode("")} className="text-sm underline">
+                                                <div className="font-black text-slate-900 dark:text-white">
+                                                    Criar a partir dos erros
+                                                </div>
+                                                <button
+                                                    onClick={() => setCreateMode("")}
+                                                    className="text-sm font-black underline text-slate-600 dark:text-slate-300"
+                                                >
                                                     Voltar
                                                 </button>
                                             </div>
 
-                                            <div className="text-sm text-slate-600">
-                                                Cole no formato: <span className="font-mono">Pergunta | Resposta</span> (um por linha).
-                                            </div>
+                                            <p className="text-sm text-slate-500 dark:text-slate-400 font-bold mt-3">
+                                                Formato: <span className="font-mono">Pergunta | Resposta</span> (um por linha)
+                                            </p>
 
                                             <textarea
-                                                className="w-full px-3 py-2 rounded-lg border min-h-[140px]"
+                                                className={ui.textarea}
                                                 placeholder={`Ex:\nO que é phishing? | É um golpe para roubar dados...\nRansomware faz o quê? | Criptografa arquivos e pede resgate`}
                                                 value={errorsPaste}
                                                 onChange={(e) => setErrorsPaste(e.target.value)}
                                             />
 
-                                            <div className="flex gap-2 justify-end">
+                                            <div className="flex justify-end mt-4">
                                                 <button
                                                     onClick={async () => {
                                                         const saved = await createCardsFromErrorsPaste();
                                                         if (saved > 0) {
                                                             setCreateCardsOpen(false);
                                                             setCreateMode("");
+                                                            setPdfInfo("");
                                                         }
                                                     }}
                                                     disabled={bulkLoading}
-                                                    className="px-4 py-2 rounded-lg bg-slate-900 text-white disabled:opacity-60"
+                                                    className={ui.btnDark}
                                                 >
                                                     {bulkLoading ? "Criando..." : "Criar cards"}
                                                 </button>
@@ -1018,36 +1125,67 @@ export default function Flashcards({ user }) {
                                         </div>
                                     )}
 
-                                    {/* IA */}
                                     {createMode === "ai" && (
-                                        <div className="space-y-3">
+                                        <div className="mt-4">
                                             <div className="flex items-center justify-between">
-                                                <div className="font-semibold">Gerar por IA</div>
-                                                <button onClick={() => setCreateMode("")} className="text-sm underline">
+                                                <div className="font-black text-slate-900 dark:text-white">Gerar por IA</div>
+                                                <button
+                                                    onClick={() => setCreateMode("")}
+                                                    className="text-sm font-black underline text-slate-600 dark:text-slate-300"
+                                                >
                                                     Voltar
                                                 </button>
                                             </div>
 
+                                            {/* ✅ Upload PDF */}
+                                            <div className="mt-3 flex flex-col gap-2">
+                                                <label className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                                                    Opcional: enviar PDF
+                                                </label>
+
+                                                <div className="flex items-center gap-2">
+                                                    <label className={`${ui.btnGhost} cursor-pointer`}>
+                                                        <input
+                                                            type="file"
+                                                            accept="application/pdf"
+                                                            className="hidden"
+                                                            onChange={(e) => handlePdfUpload(e.target.files?.[0])}
+                                                        />
+                                                        <span className="flex items-center gap-2">
+                                                            <Upload size={16} /> {pdfLoading ? "Lendo..." : "Selecionar PDF"}
+                                                        </span>
+                                                    </label>
+
+                                                    {pdfInfo ? (
+                                                        <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">
+                                                            {pdfInfo}
+                                                        </span>
+                                                    ) : null}
+                                                </div>
+                                            </div>
+
                                             <textarea
-                                                className="w-full min-h-[130px] px-3 py-2 rounded-lg border"
-                                                placeholder="Cole aqui o texto base para gerar flashcards..."
+                                                className={ui.textarea}
+                                                placeholder="Cole aqui o texto base para gerar flashcards (ou carregue um PDF acima)..."
                                                 value={aiForm.text}
                                                 onChange={(e) => setAiForm((p) => ({ ...p, text: e.target.value }))}
                                             />
 
-                                            <div className="grid grid-cols-2 gap-2">
+                                            <div className="grid grid-cols-2 gap-3 mt-3">
                                                 <input
                                                     type="number"
                                                     min="3"
                                                     max="30"
-                                                    className="px-3 py-2 rounded-lg border"
+                                                    className={ui.input.replace("mt-2 ", "")}
                                                     value={aiForm.qtd}
                                                     onChange={(e) => setAiForm((p) => ({ ...p, qtd: e.target.value }))}
                                                 />
                                                 <select
-                                                    className="px-3 py-2 rounded-lg border"
+                                                    className={ui.input.replace("mt-2 ", "")}
                                                     value={aiForm.aggressiveness}
-                                                    onChange={(e) => setAiForm((p) => ({ ...p, aggressiveness: e.target.value }))}
+                                                    onChange={(e) =>
+                                                        setAiForm((p) => ({ ...p, aggressiveness: e.target.value }))
+                                                    }
                                                 >
                                                     <option value="prova">Prova</option>
                                                     <option value="medio">Médio</option>
@@ -1055,25 +1193,26 @@ export default function Flashcards({ user }) {
                                                 </select>
                                             </div>
 
-                                            <div className="flex gap-2 justify-end">
+                                            <div className="flex justify-end mt-4">
                                                 <button
                                                     onClick={async () => {
                                                         const saved = await generateWithAI();
                                                         if (saved > 0) {
                                                             setCreateCardsOpen(false);
                                                             setCreateMode("");
+                                                            setPdfInfo("");
                                                         }
                                                     }}
                                                     disabled={aiLoading}
-                                                    className="px-4 py-2 rounded-lg bg-cyan-600 text-white disabled:opacity-60"
+                                                    className={ui.btnEdit}
                                                 >
                                                     {aiLoading ? "Gerando..." : "Gerar com IA"}
                                                 </button>
                                             </div>
 
-                                            <div className="text-xs text-slate-500">
-                                                Dica: cole um trecho com definições, listas e exemplos (quanto mais estruturado, melhor).
-                                            </div>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-3">
+                                                Se o PDF for scan/imagem, o texto pode não sair (aí precisa OCR).
+                                            </p>
                                         </div>
                                     )}
                                 </div>
