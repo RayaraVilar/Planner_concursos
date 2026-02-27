@@ -308,9 +308,7 @@ Crie ${safeQtd} flashcards premium estilo Estratégia/Anki a partir do conteúdo
 
 Regras:
 - Responda SOMENTE JSON válido (sem texto extra)
-- Misture tipos:
-  - normal: pergunta/resposta
-  - cloze: cloze_text com {{c1::...}} e cloze_answer
+- Gere apenas cards do tipo normal: pergunta/resposta (sem cloze)
 - Tags automáticas (3 a 7)
 - Curto, objetivo e útil para revisão
 - Pode usar Markdown e LaTeX quando necessário
@@ -318,11 +316,9 @@ Regras:
 Formato:
 [
   {
-    "tipo": "normal" | "cloze",
+    "tipo": "normal",
     "pergunta": "...",
     "resposta": "...",
-    "cloze_text": "...",
-    "cloze_answer": "...",
     "tags": ["tag1","tag2"]
   }
 ]
@@ -345,7 +341,7 @@ ${baseText}
         ],
         temperature: 0.2,
         response_format: { type: "json_object" },
-        max_tokens: 1600, // ✅ limite com folga para cards cloze
+        max_tokens: 1600
       }),
     });
 
@@ -369,15 +365,15 @@ ${baseText}
     const deck_id = crypto.randomUUID();
 
     const normalized = (Array.isArray(cardsRaw) ? cardsRaw : []).map((c: any) => ({
-      tipo: c?.tipo === "cloze" ? "cloze" : "normal",
-      pergunta: String(c?.pergunta ?? "").trim(),
-      resposta: String(c?.resposta ?? "").trim(),
-      cloze_text: c?.cloze_text ? String(c.cloze_text) : null,
-      cloze_answer: c?.cloze_answer ? String(c.cloze_answer) : null,
+      tipo: "normal",
+      pergunta: String(c?.pergunta ?? c?.cloze_text ?? "").trim(),
+      resposta: String(c?.resposta ?? c?.cloze_answer ?? "").trim(),
+      cloze_text: null,
+      cloze_answer: null,
       tags: Array.isArray(c?.tags) ? c.tags.map((t: any) => String(t)) : [],
     }));
 
-    const validCards = normalized.filter((c) => (c.tipo === "cloze" ? !!(c.cloze_text && c.cloze_answer) : c.pergunta.length >= 3));
+    const validCards = normalized.filter((c) => c.pergunta.length >= 3 && c.resposta.length >= 2);
 
     // ✅ 3) Salvar no banco (RLS) como o usuário autenticado
     let saved = 0;

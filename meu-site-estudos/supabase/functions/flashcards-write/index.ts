@@ -215,6 +215,38 @@ Deno.serve(async (req) => {
       }
     }
 
+
+    // =========================
+    // CREATE TOPIC
+    // =========================
+    if (action === "create_topic") {
+      const subject_id = String(body.subject_id || "");
+      if (!subject_id)
+        return json(400, { ok: false, error: "subject_id é obrigatório." });
+
+      const subject = await existsWithFallback(
+        supabaseAdmin,
+        "flash_subjects",
+        subject_id,
+        user.id
+      );
+
+      if (!subject)
+        return json(403, {
+          ok: false,
+          error: "Assunto inválido para este usuário.",
+        });
+
+      const { data } = await insertWithFallback(
+        supabaseAdmin,
+        "flash_topics",
+        { user_id: user.id, subject_id, nome },
+        { user_id: user.id, subject_id, name: nome }
+      );
+
+      return json(200, { ok: true, data });
+    }
+
     // =========================
     // CREATE DECK
     // =========================
@@ -262,17 +294,9 @@ Deno.serve(async (req) => {
       if (!deck_id)
         return json(400, { ok: false, error: "deck_id é obrigatório." });
 
-      const tipo = body.tipo === "cloze" ? "cloze" : "normal";
-
-      const pergunta =
-        tipo === "cloze"
-          ? String(body.cloze_text || "").trim()
-          : String(body.pergunta || "").trim();
-
-      const resposta =
-        tipo === "cloze"
-          ? String(body.cloze_answer || "").trim()
-          : String(body.resposta || "").trim();
+      const tipo = "normal";
+      const pergunta = String(body.pergunta || "").trim();
+      const resposta = String(body.resposta || "").trim();
 
       if (!pergunta || !resposta)
         return json(400, {
@@ -286,8 +310,8 @@ Deno.serve(async (req) => {
         tipo,
         pergunta,
         resposta,
-        cloze_text: tipo === "cloze" ? pergunta : null,
-        cloze_answer: tipo === "cloze" ? resposta : null,
+        cloze_text: null,
+        cloze_answer: null,
         tags: Array.isArray(body.tags)
           ? body.tags.map((t) => String(t))
           : [],
