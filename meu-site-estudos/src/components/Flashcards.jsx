@@ -1,13 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
-import {
-    ChevronLeft,
-    Pencil,
-    Plus,
-    Sparkles,
-    Trash2,
-    Upload,
-} from "lucide-react";
+import { ChevronLeft, Pencil, Plus, Sparkles, Trash2, Upload } from "lucide-react";
 import * as pdfjsLib from "pdfjs-dist";
 
 // ✅ worker do pdfjs (Vite/React)
@@ -68,7 +61,7 @@ function parsePairs(text) {
     return pairs.slice(0, 60);
 }
 
-// ====== UI (estilo do Matérias) ======
+// ====== UI ======
 const ui = {
     wrap: "w-full max-w-3xl mx-auto",
     headerTitle: "text-2xl font-black text-slate-900 dark:text-white",
@@ -113,17 +106,14 @@ const ui = {
 export default function Flashcards({ user }) {
     const userId = user?.id;
 
-    // Drill-down level
-    const [level, setLevel] = useState("courses"); // courses | disciplines | subjects | topics | decks | cards
+    const [level, setLevel] = useState("courses");
 
-    // selections
     const [courseId, setCourseId] = useState("");
     const [disciplineId, setDisciplineId] = useState("");
     const [subjectId, setSubjectId] = useState("");
     const [topicId, setTopicId] = useState("");
     const [deckId, setDeckId] = useState("");
 
-    // legacy: se flash_subjects falhar, usamos flash_topics como subjects e pulamos "topics"
     const [isLegacySubjects, setIsLegacySubjects] = useState(false);
 
     const [tree, setTree] = useState(initialTree);
@@ -137,17 +127,18 @@ export default function Flashcards({ user }) {
     const [cardForm, setCardForm] = useState({ pergunta: "", resposta: "", tags: "" });
     const [aiForm, setAiForm] = useState({ text: "", qtd: 12, aggressiveness: "medio" });
 
-    // Modal “Criar cards”
     const [createCardsOpen, setCreateCardsOpen] = useState(false);
-    const [createMode, setCreateMode] = useState(""); // "" | "manual" | "errors" | "ai"
+    const [createMode, setCreateMode] = useState("");
     const [errorsPaste, setErrorsPaste] = useState("");
     const [bulkLoading, setBulkLoading] = useState(false);
 
-    // ✅ PDF
     const [pdfLoading, setPdfLoading] = useState(false);
     const [pdfInfo, setPdfInfo] = useState("");
 
-    const selectedDeck = useMemo(() => tree.decks.find((d) => d.id === deckId), [tree.decks, deckId]);
+    const selectedDeck = useMemo(
+        () => tree.decks.find((d) => d.id === deckId),
+        [tree.decks, deckId]
+    );
 
     const breadcrumb = useMemo(() => {
         const parts = [{ key: "courses", label: "Cursos" }];
@@ -172,80 +163,30 @@ export default function Flashcards({ user }) {
         return token;
     }
 
-    // callWrite melhorado: mostra erro REAL
+    // ✅ CORRIGIDO: CRUD usa flashcards-write
     async function callWrite(action, payload) {
         const token = await getTokenOrThrow();
 
-        const { data, error } = await supabase.functions.invoke("generate-flashcards", {
-            body: {
-                text: aiForm.text,
-                texto: aiForm.text,       // ✅ fallback
-                content: aiForm.text,     // ✅ fallback
-                input: aiForm.text,       // ✅ fallback
-                qtd: Number(aiForm.qtd || 12),
-                count: Number(aiForm.qtd || 12), // ✅ fallback
-                aggressiveness: aiForm.aggressiveness,
-            },
+        const { data, error } = await supabase.functions.invoke("flashcards-write", {
+            body: { action, ...payload },
             headers: { Authorization: `Bearer ${token}` },
         });
-        // ✅ ADICIONE ISSO (sem apagar nada)
-        console.log("generate-flashcards error:", error);
-        console.log("generate-flashcards data:", data);
+
+        console.log("flashcards-write action:", action);
+        console.log("flashcards-write payload:", payload);
+        console.log("flashcards-write data:", data);
+        console.log("flashcards-write error:", error);
 
         if (error) {
-            // mantém seu fluxo atual, mas loga melhor
-            console.error("invoke failed:", error);
-        }
-
-        // Se você tem a mensagem "IA não gerou cards válidos", geralmente é porque
-        // você está lendo cards do lugar errado.
-        // Com a function acima, sempre vem: data = { ok: true/false, cards: [...] }
-
-        const cards = data?.cards ?? []; // ✅ aqui é o ponto principal
-
-        console.log("cards recebidos:", cards);
-
-        // Exemplo de validação segura (não apaga sua validação, só ajuda)
-        const valid = cards.filter((c) => (c?.pergunta || c?.front) && (c?.resposta || c?.back));
-
-        console.log("cards válidos:", valid);
-
-        const deckId = selectedDeck?.id; // isso precisa ser o UUID do deck
-        // ou, se você guarda num state: const deckId = selectedDeckId;
-
-        const toInsert = valid.map((c) => ({
-            user_id: userId,
-            deck_id: deckId,              // ✅ ESSENCIAL
-            topic_id: selectedTopic?.id ?? null,      // opcional
-            discipline_id: selectedDiscipline?.id ?? null, // opcional
-            pergunta: c.pergunta ?? c.front,
-            resposta: c.resposta ?? c.back,
-            tags: c.tags ?? [],
-            tipo: "normal",
-        }));
-
-        const { error: insErr } = await supabase.from("flash_cards").insert(toInsert);
-        if (insErr) console.error(insErr);
-
-        console.log("payload insert:", toInsert);
-
-        if (error) console.error(error);
-
-        if (error) {
-            console.error("flashcards-write error:", error);
             const msg =
                 error?.context?.body?.error ||
                 error?.context?.body?.message ||
                 error?.message ||
-                "Falha na Edge Function";
+                "Falha na Edge Function (flashcards-write)";
             throw new Error(msg);
         }
 
-        if (!data?.ok) {
-            console.error("flashcards-write response:", data);
-            throw new Error(data?.error || "Falha ao salvar.");
-        }
-
+        if (!data?.ok) throw new Error(data?.error || "Falha ao salvar.");
         return data?.data?.id;
     }
 
@@ -332,6 +273,7 @@ export default function Flashcards({ user }) {
         [userId]
     );
 
+    // ✅ Topic dentro de subject: filtra por subject_id
     const loadTopics = useCallback(
         async (subject_id) => {
             setLoading(true);
@@ -354,33 +296,21 @@ export default function Flashcards({ user }) {
         [userId]
     );
 
+    // ✅ Deck: sempre por topic_id (e opcional por subject_id)
     const loadDecks = useCallback(
-        async (baseId) => {
+        async (baseId, mode = "topic") => {
             setLoading(true);
             try {
-                const modern = await supabase
+                let q = supabase
                     .from("flash_decks")
-                    .select("id,name,topic_id,created_at")
-                    .eq("user_id", userId)
-                    .or(`topic_id.eq.${baseId},subject_id.eq.${baseId}`)
-                    .order("created_at", { ascending: false });
+                    .select("id,name,topic_id,subject_id,created_at")
+                    .eq("user_id", userId);
 
-                if (!modern.error) {
-                    setTree((p) => ({ ...p, decks: (modern.data || []).map(normalizeNameRow) }));
-                    return;
-                }
+                if (mode === "topic") q = q.eq("topic_id", baseId);
+                if (mode === "subject") q = q.eq("subject_id", baseId);
 
-                const legacy = await supabase
-                    .from("flash_decks")
-                    .select("id,name,topic_id,created_at")
-                    .eq("user_id", userId)
-                    .eq("topic_id", baseId)
-                    .order("created_at", { ascending: false });
-
-                setTree((p) => ({
-                    ...p,
-                    decks: (legacy.data || []).map((r) => ({ ...r, nome: r.name })),
-                }));
+                const res = await q.order("created_at", { ascending: false });
+                setTree((p) => ({ ...p, decks: (res.data || []).map(normalizeNameRow) }));
             } finally {
                 setLoading(false);
             }
@@ -396,7 +326,7 @@ export default function Flashcards({ user }) {
                     .from("flash_cards")
                     .select("id,pergunta,resposta,tags,created_at")
                     .eq("user_id", userId)
-                    .eq("deck_id", selectedDeck.id)   // ✅ UUID
+                    .eq("deck_id", deck_id)
                     .order("created_at", { ascending: false });
 
                 setTree((p) => ({ ...p, cards: data || [] }));
@@ -407,7 +337,6 @@ export default function Flashcards({ user }) {
         [userId]
     );
 
-    // init
     useEffect(() => {
         if (!userId) return;
 
@@ -444,7 +373,6 @@ export default function Flashcards({ user }) {
             setTree((p) => ({ ...p, disciplines: [], subjects: [], topics: [], decks: [], cards: [] }));
             return;
         }
-
         if (nextLevel === "disciplines") {
             setDisciplineId("");
             setSubjectId("");
@@ -454,7 +382,6 @@ export default function Flashcards({ user }) {
             setTree((p) => ({ ...p, subjects: [], topics: [], decks: [], cards: [] }));
             return;
         }
-
         if (nextLevel === "subjects") {
             setSubjectId("");
             setTopicId("");
@@ -462,20 +389,17 @@ export default function Flashcards({ user }) {
             setTree((p) => ({ ...p, topics: [], decks: [], cards: [] }));
             return;
         }
-
         if (nextLevel === "topics") {
             setTopicId("");
             setDeckId("");
             setTree((p) => ({ ...p, decks: [], cards: [] }));
             return;
         }
-
         if (nextLevel === "decks") {
             setDeckId("");
             setTree((p) => ({ ...p, cards: [] }));
             return;
         }
-
         if (nextLevel === "cards") {
             setTree((p) => ({ ...p, cards: [] }));
         }
@@ -483,7 +407,6 @@ export default function Flashcards({ user }) {
 
     async function enter(nextLevel, id) {
         setNewName("");
-
         setCreateCardsOpen(false);
         setCreateMode("");
         setErrorsPaste("");
@@ -516,12 +439,16 @@ export default function Flashcards({ user }) {
         if (nextLevel === "decks") {
             if (isLegacySubjects) {
                 setSubjectId(id);
-            } else {
-                setTopicId(id);
+                clearBelow("decks");
+                setLevel("decks");
+                await loadDecks(id, "topic"); // legacy: subjectId é topicId
+                return;
             }
+
+            setTopicId(id);
             clearBelow("decks");
             setLevel("decks");
-            await loadDecks(id);
+            await loadDecks(id, "topic");
             return;
         }
 
@@ -536,7 +463,6 @@ export default function Flashcards({ user }) {
 
     function goBack() {
         setNewName("");
-
         setCreateCardsOpen(false);
         setCreateMode("");
         setErrorsPaste("");
@@ -618,7 +544,7 @@ export default function Flashcards({ user }) {
 
         try {
             if (level === "courses") {
-                await callWrite("create_course", { nome: name });
+                await callWrite("create_course", { name });
                 setNewName("");
                 await loadCourses();
                 return;
@@ -626,7 +552,7 @@ export default function Flashcards({ user }) {
 
             if (level === "disciplines") {
                 if (!courseId) return alert("Selecione um curso.");
-                await callWrite("create_discipline", { nome: name, course_id: courseId });
+                await callWrite("create_discipline", { name, course_id: courseId });
                 setNewName("");
                 await loadDisciplines(courseId);
                 return;
@@ -636,13 +562,13 @@ export default function Flashcards({ user }) {
                 if (!disciplineId) return alert("Selecione uma disciplina.");
 
                 if (isLegacySubjects) {
-                    await callWrite("create_topic_legacy", { nome: name, discipline_id: disciplineId });
+                    await callWrite("create_topic_legacy", { name, discipline_id: disciplineId });
                     setNewName("");
                     await loadSubjects(disciplineId);
                     return;
                 }
 
-                await callWrite("create_subject", { nome: name, discipline_id: disciplineId });
+                await callWrite("create_subject", { name, discipline_id: disciplineId });
                 setNewName("");
                 await loadSubjects(disciplineId);
                 return;
@@ -650,29 +576,24 @@ export default function Flashcards({ user }) {
 
             if (level === "topics") {
                 if (!subjectId) return alert("Selecione um assunto.");
-                await callWrite("create_topic", { nome: name, subject_id: subjectId });
+                await callWrite("create_topic", { name, subject_id: subjectId });
                 setNewName("");
                 await loadTopics(subjectId);
                 return;
             }
 
             if (level === "decks") {
-                if (isLegacySubjects) {
-                    if (!subjectId) return alert("Selecione um assunto.");
-                    await callWrite("create_deck", { nome: name, topic_id: subjectId });
-                    setNewName("");
-                    await loadDecks(subjectId);
-                    return;
-                }
-
+                // ✅ modo novo: deck por topicId
                 if (!topicId) return alert("Selecione um tópico.");
+
                 await callWrite("create_deck", {
-                    nome: name,
+                    name,
                     topic_id: topicId,
                     subject_id: subjectId || null,
                 });
+
                 setNewName("");
-                await loadDecks(topicId);
+                await loadDecks(topicId, "topic");
                 return;
             }
         } catch (e) {
@@ -703,8 +624,7 @@ export default function Flashcards({ user }) {
             if (level === "topics") await loadTopics(subjectId);
 
             if (level === "decks") {
-                const base = isLegacySubjects ? subjectId : topicId;
-                await loadDecks(base);
+                await loadDecks(topicId, "topic");
             }
         } catch (e) {
             alert(e.message);
@@ -733,6 +653,7 @@ export default function Flashcards({ user }) {
         }
     }
 
+    // IA continua separada: chama generate-flashcards
     async function generateWithAI() {
         if (!deckId) return alert("Entre em um deck antes de gerar por IA.");
         if (!aiForm.text.trim()) return alert("Cole um texto base para a IA.");
@@ -740,24 +661,15 @@ export default function Flashcards({ user }) {
         setAiLoading(true);
         try {
             const token = await getTokenOrThrow();
+
             const { data, error } = await supabase.functions.invoke("generate-flashcards", {
                 body: {
                     text: aiForm.text,
-                    texto: aiForm.text,       // ✅ fallback
-                    content: aiForm.text,     // ✅ fallback
-                    input: aiForm.text,       // ✅ fallback
                     qtd: Number(aiForm.qtd || 12),
-                    count: Number(aiForm.qtd || 12), // ✅ fallback
                     aggressiveness: aiForm.aggressiveness,
                 },
                 headers: { Authorization: `Bearer ${token}` },
             });
-
-            if (error) console.error(error);
-
-            // ✅ Loga o erro real
-            if (error) console.error("generate-flashcards invoke error:", error);
-            if (data && !data.ok) console.error("generate-flashcards response:", data);
 
             if (error || !data?.ok) {
                 const msg =
@@ -773,8 +685,8 @@ export default function Flashcards({ user }) {
             let saved = 0;
 
             for (const c of cards) {
-                const pergunta = String(c.pergunta || c.cloze_text || "").trim();
-                const resposta = String(c.resposta || c.cloze_answer || "").trim();
+                const pergunta = String(c.pergunta || c.front || "").trim();
+                const resposta = String(c.resposta || c.back || "").trim();
                 if (!pergunta || !resposta) continue;
 
                 await callWrite("create_card", {
@@ -784,6 +696,7 @@ export default function Flashcards({ user }) {
                     resposta,
                     tags: Array.isArray(c.tags) ? c.tags.slice(0, 8) : [],
                 });
+
                 saved += 1;
             }
 
@@ -807,9 +720,7 @@ export default function Flashcards({ user }) {
     async function createCardsFromErrorsPaste() {
         if (!deckId) return alert("Entre em um deck.");
         const pairs = parsePairs(errorsPaste);
-        if (!pairs.length) {
-            return alert('Cole no formato "Pergunta | Resposta" (um por linha).');
-        }
+        if (!pairs.length) return alert('Cole no formato "Pergunta | Resposta" (um por linha).');
 
         setBulkLoading(true);
         try {
@@ -826,7 +737,6 @@ export default function Flashcards({ user }) {
             }
 
             await loadCards(deckId);
-
             setErrorsPaste("");
             alert(`✅ ${saved} cards criados a partir dos erros!`);
             return saved;
@@ -838,7 +748,6 @@ export default function Flashcards({ user }) {
         }
     }
 
-    // ✅ Extrair texto do PDF e jogar no aiForm.text
     async function handlePdfUpload(file) {
         if (!file) return;
         if (file.type !== "application/pdf") return alert("Envie um arquivo PDF.");
@@ -859,7 +768,7 @@ export default function Flashcards({ user }) {
             }
 
             const cleaned = text.replace(/\s+/g, " ").trim();
-            const maxChars = 15000; // limite pra não explodir tokens
+            const maxChars = 15000;
             const clipped = cleaned.slice(0, maxChars);
 
             setAiForm((p) => ({ ...p, text: clipped }));
@@ -883,11 +792,10 @@ export default function Flashcards({ user }) {
             (level === "disciplines" && courseId) ||
             (level === "subjects" && disciplineId) ||
             (level === "topics" && subjectId && !isLegacySubjects) ||
-            (level === "decks" && (isLegacySubjects ? subjectId : topicId)));
+            (level === "decks" && topicId));
 
     return (
         <div className={ui.wrap}>
-            {/* Top header */}
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h2 className={ui.headerTitle}>Flashcards</h2>
@@ -899,14 +807,10 @@ export default function Flashcards({ user }) {
                 </button>
             </div>
 
-            {/* Breadcrumb + Back */}
             <div className="flex items-center justify-between gap-3 mb-4">
                 <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 flex-wrap font-bold">
                     {[...breadcrumb].map((b, idx) => (
-                        <span
-                            key={b.key}
-                            className={b.key === level ? "text-slate-900 dark:text-white font-black" : ""}
-                        >
+                        <span key={b.key} className={b.key === level ? "text-slate-900 dark:text-white font-black" : ""}>
                             {idx > 0 ? " / " : ""}
                             {b.label}
                         </span>
@@ -920,7 +824,6 @@ export default function Flashcards({ user }) {
                 )}
             </div>
 
-            {/* Create on this level */}
             {editMode && level !== "cards" && (
                 <div className={`${ui.panelSoft} mb-4`}>
                     <label className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
@@ -942,7 +845,6 @@ export default function Flashcards({ user }) {
                 </div>
             )}
 
-            {/* Main */}
             <div className={ui.panel}>
                 <div className="flex items-center justify-between mb-3">
                     <h3 className="text-xl font-black text-slate-900 dark:text-white">{title}</h3>
@@ -953,7 +855,6 @@ export default function Flashcards({ user }) {
                     )}
                 </div>
 
-                {/* Lists */}
                 {level !== "cards" ? (
                     !currentList.length ? (
                         <div className="p-8 rounded-[32px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-center">
@@ -966,14 +867,8 @@ export default function Flashcards({ user }) {
                         <div className="space-y-3">
                             {currentList.map((item) => {
                                 const next = nextLevelForCurrent();
-
                                 return (
-                                    <button
-                                        key={item.id}
-                                        onClick={() => next && enter(next, item.id)}
-                                        className={ui.tile}
-                                    >
-                                        {/* ✅ REMOVIDA a “etiqueta azul” (a barrinha). Mantive só o texto. */}
+                                    <button key={item.id} onClick={() => next && enter(next, item.id)} className={ui.tile}>
                                         <div className="flex items-center gap-3 text-left">
                                             <div>
                                                 <p className={ui.tileTitle}>{item.nome}</p>
@@ -994,7 +889,6 @@ export default function Flashcards({ user }) {
                                                     <Trash2 size={16} className="text-slate-600 dark:text-slate-200" />
                                                 </button>
                                             )}
-
                                             <span className={ui.iconMuted}>›</span>
                                         </div>
                                     </button>
@@ -1003,14 +897,11 @@ export default function Flashcards({ user }) {
                         </div>
                     )
                 ) : (
-                    // Cards screen
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
                             <div className="text-sm text-slate-500 dark:text-slate-400 font-bold">
                                 Deck:{" "}
-                                <span className="text-slate-900 dark:text-white font-black">
-                                    {selectedDeck?.nome || "-"}
-                                </span>
+                                <span className="text-slate-900 dark:text-white font-black">{selectedDeck?.nome || "-"}</span>
                             </div>
 
                             {editMode && (
@@ -1028,14 +919,10 @@ export default function Flashcards({ user }) {
                         </div>
 
                         <div className={ui.panelSoft}>
-                            <h4 className="text-base font-black text-slate-900 dark:text-white mb-3">
-                                Cards deste deck
-                            </h4>
+                            <h4 className="text-base font-black text-slate-900 dark:text-white mb-3">Cards deste deck</h4>
 
                             {!tree.cards.length ? (
-                                <p className="text-sm text-slate-500 dark:text-slate-400 font-bold">
-                                    Nenhum card ainda.
-                                </p>
+                                <p className="text-sm text-slate-500 dark:text-slate-400 font-bold">Nenhum card ainda.</p>
                             ) : (
                                 <ul className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
                                     {tree.cards.map((card) => (
@@ -1044,16 +931,13 @@ export default function Flashcards({ user }) {
                                             className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
                                         >
                                             <p className="font-black text-slate-900 dark:text-white">{card.pergunta}</p>
-                                            <p className="text-sm text-slate-600 dark:text-slate-300 mt-2 font-bold">
-                                                {card.resposta}
-                                            </p>
+                                            <p className="text-sm text-slate-600 dark:text-slate-300 mt-2 font-bold">{card.resposta}</p>
                                         </li>
                                     ))}
                                 </ul>
                             )}
                         </div>
 
-                        {/* Modal */}
                         {createCardsOpen && (
                             <div className={ui.overlay}>
                                 <div className={ui.modal}>
@@ -1079,9 +963,7 @@ export default function Flashcards({ user }) {
                                             </button>
 
                                             <button onClick={() => setCreateMode("errors")} className={ui.modalCard}>
-                                                <div className="font-black text-slate-900 dark:text-white">
-                                                    A partir dos erros
-                                                </div>
+                                                <div className="font-black text-slate-900 dark:text-white">A partir dos erros</div>
                                                 <div className={ui.modalText}>Cole “Pergunta | Resposta” (1 por linha)</div>
                                             </button>
 
@@ -1144,9 +1026,7 @@ export default function Flashcards({ user }) {
                                     {createMode === "errors" && (
                                         <div className="mt-4">
                                             <div className="flex items-center justify-between">
-                                                <div className="font-black text-slate-900 dark:text-white">
-                                                    Criar a partir dos erros
-                                                </div>
+                                                <div className="font-black text-slate-900 dark:text-white">Criar a partir dos erros</div>
                                                 <button
                                                     onClick={() => setCreateMode("")}
                                                     className="text-sm font-black underline text-slate-600 dark:text-slate-300"
@@ -1197,7 +1077,6 @@ export default function Flashcards({ user }) {
                                                 </button>
                                             </div>
 
-                                            {/* ✅ Upload PDF */}
                                             <div className="mt-3 flex flex-col gap-2">
                                                 <label className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
                                                     Opcional: enviar PDF
@@ -1217,9 +1096,7 @@ export default function Flashcards({ user }) {
                                                     </label>
 
                                                     {pdfInfo ? (
-                                                        <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">
-                                                            {pdfInfo}
-                                                        </span>
+                                                        <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">{pdfInfo}</span>
                                                     ) : null}
                                                 </div>
                                             </div>
@@ -1243,9 +1120,7 @@ export default function Flashcards({ user }) {
                                                 <select
                                                     className={ui.input.replace("mt-2 ", "")}
                                                     value={aiForm.aggressiveness}
-                                                    onChange={(e) =>
-                                                        setAiForm((p) => ({ ...p, aggressiveness: e.target.value }))
-                                                    }
+                                                    onChange={(e) => setAiForm((p) => ({ ...p, aggressiveness: e.target.value }))}
                                                 >
                                                     <option value="prova">Prova</option>
                                                     <option value="medio">Médio</option>

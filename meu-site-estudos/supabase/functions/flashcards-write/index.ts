@@ -24,7 +24,9 @@ async function requireUser(req: Request) {
   }
 
   const supabaseAuth = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } },
+    global: {
+      headers: { Authorization: req.headers.get("Authorization") ?? "" },
+    },
   });
 
   const { data, error } = await supabaseAuth.auth.getUser();
@@ -35,6 +37,18 @@ async function requireUser(req: Request) {
 function must(v: any, msg: string) {
   if (v === undefined || v === null || String(v).trim() === "") throw new Error(msg);
   return v;
+}
+
+// fallback: aceita body.name e body.nome (pra não quebrar chamadas antigas)
+function mustName(body: any) {
+  const v = body?.name ?? body?.nome;
+  return must(v, "Missing name");
+}
+
+function toUuidOrNull(v: any) {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  return s ? s : null;
 }
 
 Deno.serve(async (req) => {
@@ -49,22 +63,26 @@ Deno.serve(async (req) => {
       throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY");
     }
 
-    // ✅ Admin client para inserir/apagar sem depender de RLS,
-    // mas SEMPRE filtrando por user_id pra não virar “porta aberta”
-    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    // Admin client (Service Role)
+    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      global: {
+        headers: { Authorization: req.headers.get("Authorization") ?? "" },
+      },
+    });
 
     const body = await req.json().catch(() => ({}));
     const action = String(body?.action ?? "").trim();
-
     if (!action) return json({ ok: false, error: "Missing action" }, 400);
 
     const uid = user.id;
 
     // Helpers
     const insert = async (table: string, row: any) => {
+      const payload = { ...row, user_id: uid };
+
       const { data, error } = await admin
         .from(table)
-        .insert({ ...row, user_id: uid })
+        .insert(payload)
         .select("id")
         .single();
 
@@ -73,7 +91,11 @@ Deno.serve(async (req) => {
     };
 
     const del = async (table: string, id: string) => {
-      const { error } = await admin.from(table).delete().eq("id", id).eq("user_id", uid);
+      const { error } = await admin
+        .from(table)
+        .delete()
+        .eq("id", id)
+        .eq("user_id", uid);
       if (error) throw new Error(`${table}: ${error.message}`);
       return true;
     };
@@ -82,50 +104,77 @@ Deno.serve(async (req) => {
     // CREATE
     // ======================
     if (action === "create_course") {
-      const nome = must(body?.nome, "Missing nome");
-      const id = await insert("flash_courses", { nome });
+      const name = mustName(body);
+      const id = await insert("flash_courses", { name });
       return json({ ok: true, data: { id } });
     }
 
     if (action === "create_discipline") {
-      const nome = must(body?.nome, "Missing nome");
+      const name = mustName(body);
       const course_id = must(body?.course_id, "Missing course_id");
-      const id = await insert("flash_disciplines", { nome, course_id });
+      const id = await insert("flash_disciplines", { name, course_id });
       return json({ ok: true, data: { id } });
     }
 
     if (action === "create_subject") {
-      const nome = must(body?.nome, "Missing nome");
+      const name = mustName(body);
       const discipline_id = must(body?.discipline_id, "Missing discipline_id");
-      const id = await insert("flash_subjects", { nome, discipline_id });
+      const id = await insert("flash_subjects", { name, discipline_id });
       return json({ ok: true, data: { id } });
     }
 
+    // ✅ TOPIC dentro de SUBJECT
+    // Sua tabela flash_topics tem discipline_id NOT NULL,
+    // então a gente busca a discipline_id do subject antes de inserir.
     if (action === "create_topic") {
-      const nome = must(body?.nome, "Missing nome");
+      const name = mustName(body);
       const subject_id = must(body?.subject_id, "Missing subject_id");
-      const id = await insert("flash_topics", { name: nome, subject_id });
+
+      const { data: subj, error: subjErr } = await admin
+        .from("flash_subjects")
+        .select("discipline_id")
+        .eq("id", subject_id)
+        .eq("user_id", uid)
+        .single();
+
+      if (subjErr) throw new Error(`flash_subjects: ${subjErr.message}`);
+
+      const discipline_id = must(subj?.discipline_id, "Subject without discipline_id");
+
+      const id = await insert("flash_topics", { name, subject_id, discipline_id });
       return json({ ok: true, data: { id } });
     }
 
-    // compat: quando seu projeto estiver no modo antigo
+    // compat: modo antigo
     if (action === "create_topic_legacy") {
-      const nome = must(body?.nome, "Missing nome");
+      const name = mustName(body);
       const discipline_id = must(body?.discipline_id, "Missing discipline_id");
-      const id = await insert("flash_topics", { name: nome, discipline_id });
+      const id = await insert("flash_topics", { name, discipline_id });
       return json({ ok: true, data: { id } });
     }
 
+    // ✅ Deck SEMPRE por topic_id (e subject_id opcional)
+    // Se subject_id não vier, tenta descobrir via topic.subject_id.
     if (action === "create_deck") {
-      const nome = must(body?.nome, "Missing nome");
-      const topic_id = body?.topic_id ? String(body.topic_id) : null;
-      const subject_id = body?.subject_id ? String(body.subject_id) : null;
+      const name = mustName(body);
+      const topic_id = toUuidOrNull(body?.topic_id);
+      let subject_id = toUuidOrNull(body?.subject_id);
 
-      // Pelo seu front, você manda topic_id e/ou subject_id.
-      // Aqui deixamos flexível: precisa de pelo menos um.
-      if (!topic_id && !subject_id) throw new Error("Missing topic_id or subject_id");
+      if (!topic_id) throw new Error("Missing topic_id");
 
-      const id = await insert("flash_decks", { nome, topic_id, subject_id });
+      if (!subject_id) {
+        const { data: t, error: tErr } = await admin
+          .from("flash_topics")
+          .select("subject_id")
+          .eq("id", topic_id)
+          .eq("user_id", uid)
+          .single();
+
+        if (tErr) throw new Error(`flash_topics: ${tErr.message}`);
+        subject_id = t?.subject_id ?? null;
+      }
+
+      const id = await insert("flash_decks", { name, topic_id, subject_id });
       return json({ ok: true, data: { id } });
     }
 
@@ -190,7 +239,6 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: `Unknown action: ${action}` }, 400);
   } catch (e) {
     console.log("flashcards-write error:", e);
-    // ✅ Agora devolve o motivo no body (pra você ver no Raw)
     return json({ ok: false, error: (e as Error).message || "Erro interno." }, 400);
   }
 });
