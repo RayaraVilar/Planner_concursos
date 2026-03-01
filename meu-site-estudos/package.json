@@ -18,7 +18,7 @@
     "@fullcalendar/react": "^6.1.20",
     "@fullcalendar/timegrid": "^6.1.20",
     "@mlc-ai/web-llm": "^0.2.80",
-    "@supabase/supabase-js": "^2.91.0",
+    "@supabase/supabase-js": "^2.98.0",
     "katex": "^0.16.28",
     "lucide-react": "^0.562.0",
     "mammoth": "^1.11.0",

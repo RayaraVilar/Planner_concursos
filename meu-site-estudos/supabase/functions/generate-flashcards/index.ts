@@ -1,333 +1,104 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+/// <reference lib="deno.ns" />
 
-/**
- * ✅ CORS
- */
-const corsHeaders = {
+const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-type Aggressiveness = "prova" | "medio" | "longo";
-
-function buildScheduleMode(mode: Aggressiveness) {
-  if (mode === "prova") return { multiplier: 0.55 };
-  if (mode === "medio") return { multiplier: 1.0 };
-  return { multiplier: 1.65 };
-}
-
-function safeJsonExtract(raw: string) {
-  const start = raw.indexOf("[");
-  const end = raw.lastIndexOf("]");
-  if (start === -1 || end === -1) return [];
-  const json = raw.slice(start, end + 1);
-  try {
-    return JSON.parse(json);
-  } catch {
-    return [];
-  }
-}
-
-async function readTextFromBytes(filename: string, bytes: Uint8Array) {
-  const lower = filename.toLowerCase();
-
-  if (lower.endsWith(".txt") || lower.endsWith(".md")) {
-    return new TextDecoder().decode(bytes);
-  }
-
-  // ✅ Para PDF/DOCX: você pode extrair no front e mandar em "text".
-  throw new Error(
-    "Upload suporta .txt/.md por enquanto. Para PDF/DOCX: cole o texto no campo."
-  );
-}
-
-function json(status: number, body: unknown) {
-  return new Response(JSON.stringify(body, null, 2), {
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
 
-
-async function handleWriteAction(
-  action: string,
-  body: Record<string, unknown>,
-  user_id: string,
-  supabaseAdmin: ReturnType<typeof createClient>
-) {
-  const nome = String(body.nome || "").trim();
-
-  if (["create_course", "create_discipline", "create_subject", "create_deck"].includes(action) && !nome) {
-    return json(400, { ok: false, error: "Nome é obrigatório." });
+function pickText(p: any): string {
+  const candidates = [p?.text, p?.texto, p?.content, p?.input];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim()) return c.trim();
   }
-
-  if (action === "create_course") {
-    const { data, error } = await supabaseAdmin
-      .from("flash_courses")
-      .insert({ user_id, nome })
-      .select("id")
-      .single();
-    if (error) throw error;
-    return json(200, { ok: true, data });
-  }
-
-  if (action === "create_discipline") {
-    const course_id = String(body.course_id || "");
-    if (!course_id) return json(400, { ok: false, error: "course_id é obrigatório." });
-
-    const { data: course } = await supabaseAdmin
-      .from("flash_courses")
-      .select("id")
-      .eq("id", course_id)
-      .eq("user_id", user_id)
-      .maybeSingle();
-
-    if (!course) return json(403, { ok: false, error: "Curso inválido para este usuário." });
-
-    const { data, error } = await supabaseAdmin
-      .from("flash_disciplines")
-      .insert({ user_id, course_id, nome })
-      .select("id")
-      .single();
-    if (error) throw error;
-    return json(200, { ok: true, data });
-  }
-
-  if (action === "create_subject") {
-    const discipline_id = String(body.discipline_id || "");
-    if (!discipline_id) return json(400, { ok: false, error: "discipline_id é obrigatório." });
-
-    const { data: discipline } = await supabaseAdmin
-      .from("flash_disciplines")
-      .select("id")
-      .eq("id", discipline_id)
-      .eq("user_id", user_id)
-      .maybeSingle();
-
-    if (!discipline) return json(403, { ok: false, error: "Disciplina inválida para este usuário." });
-
-    const { data, error } = await supabaseAdmin
-      .from("flash_subjects")
-      .insert({ user_id, discipline_id, nome })
-      .select("id")
-      .single();
-    if (error) throw error;
-    return json(200, { ok: true, data });
-  }
-
-  if (action === "create_deck") {
-    const subject_id = String(body.subject_id || "");
-    if (!subject_id) return json(400, { ok: false, error: "subject_id é obrigatório." });
-
-    const { data: subject } = await supabaseAdmin
-      .from("flash_subjects")
-      .select("id")
-      .eq("id", subject_id)
-      .eq("user_id", user_id)
-      .maybeSingle();
-
-    if (!subject) return json(403, { ok: false, error: "Assunto inválido para este usuário." });
-
-    const { data, error } = await supabaseAdmin
-      .from("flash_decks")
-      .insert({ user_id, subject_id, nome })
-      .select("id")
-      .single();
-    if (error) throw error;
-    return json(200, { ok: true, data });
-  }
-
-  if (action === "create_card") {
-    const deck_id = String(body.deck_id || "");
-    if (!deck_id) return json(400, { ok: false, error: "deck_id é obrigatório." });
-
-    const { data: deck } = await supabaseAdmin
-      .from("flash_decks")
-      .select("id")
-      .eq("id", deck_id)
-      .eq("user_id", user_id)
-      .maybeSingle();
-
-    if (!deck) return json(403, { ok: false, error: "Deck inválido para este usuário." });
-
-    const payload = {
-      user_id,
-      deck_id,
-      tipo: body.tipo === "cloze" ? "cloze" : "normal",
-      pergunta: body.pergunta ? String(body.pergunta).trim() : null,
-      resposta: body.resposta ? String(body.resposta).trim() : null,
-      cloze_text: body.cloze_text ? String(body.cloze_text).trim() : null,
-      cloze_answer: body.cloze_answer ? String(body.cloze_answer).trim() : null,
-      tags: Array.isArray(body.tags) ? body.tags.map((tag) => String(tag)) : [],
-      favoritos: false,
-    };
-
-    if (payload.tipo === "normal" && (!payload.pergunta || !payload.resposta)) {
-      return json(400, { ok: false, error: "pergunta/resposta são obrigatórias para tipo normal." });
-    }
-
-    if (payload.tipo === "cloze" && (!payload.cloze_text || !payload.cloze_answer)) {
-      return json(400, { ok: false, error: "cloze_text/cloze_answer são obrigatórias para tipo cloze." });
-    }
-
-    const { error } = await supabaseAdmin.from("flash_cards").insert(payload);
-    if (error) throw error;
-    return json(200, { ok: true });
-  }
-
-  return json(400, { ok: false, error: "action inválida." });
+  return "";
 }
 
+function extractOutputText(resJson: any): string {
+  if (typeof resJson?.output_text === "string" && resJson.output_text.trim()) {
+    return resJson.output_text;
+  }
+  const output = resJson?.output;
+  if (Array.isArray(output)) {
+    for (const item of output) {
+      const content = item?.content;
+      if (Array.isArray(content)) {
+        for (const c of content) {
+          const t = c?.text;
+          if (typeof t === "string" && t.trim()) return t;
+        }
+      }
+    }
+  }
+  return "";
+}
 
 Deno.serve(async (req) => {
-  // ✅ preflight (CORS)
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return json({ ok: false, error: "Use POST." }, 405);
 
   try {
-    // ✅ Secrets
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
-    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    const raw = await req.text();
+    console.log("📩 RAW BODY:", raw);
 
-    if (!SUPABASE_URL) throw new Error("Missing SUPABASE_URL secret");
-    if (!SUPABASE_ANON_KEY) throw new Error("Missing SUPABASE_ANON_KEY secret");
-    if (!SUPABASE_SERVICE_ROLE_KEY)
-      throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY secret");
-
-    // ✅ 1) Validar usuário via Auth (verify_jwt=false no config)
-    const authHeader = req.headers.get("Authorization") || "";
-    const token = authHeader.replace("Bearer ", "").trim();
-    if (!token) return json(401, { ok: false, error: "Missing Bearer token" });
-
-    const authClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    const {
-      data: { user },
-      error: userErr,
-    } = await authClient.auth.getUser(token);
-
-    if (userErr || !user) {
-      return json(401, {
-        ok: false,
-        error: "Invalid user token",
-        details: userErr?.message,
-      });
-    }
-
-    const user_id = user.id;
-
-    // ✅ 2) Ler body de forma robusta (evita erro de JSON por aspas/escape)
-    const rawBody = await req.text();
-    let body: any = {};
+    let payload: any = {};
     try {
-      body = rawBody ? JSON.parse(rawBody) : {};
-    } catch {
-      return json(400, {
-        ok: false,
-        error:
-          "Body inválido. Envie JSON válido. (Dica: use --data-binary @body.json no PowerShell)",
-        raw: rawBody,
-      });
+      payload = raw ? JSON.parse(raw) : {};
+    } catch (e) {
+      console.error("❌ JSON parse error:", e);
+      return json({ ok: false, error: "JSON inválido.", raw }, 400);
     }
 
-    const action = String(body?.action || "").trim();
-    if (action) {
-      const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-      return await handleWriteAction(action, body, user_id, supabaseAdmin);
+    const text = pickText(payload);
+    if (!text) {
+      return json(
+        { ok: false, error: "Texto vazio.", hint: "Envie text | texto | content | input" },
+        400
+      );
     }
 
-    if (!OPENAI_API_KEY) throw new Error("Missing OPENAI_API_KEY secret");
-
-    const {
-      qtd = 20,
-      aggressiveness = "medio",
-      course,
-      discipline,
-      subjects,
-      text,
-      upload_path,
-      filename,
-      // opcional: salvar direto no banco (frontend já faz isso por padrão)
-      save = false,
-    } = body || {};
-
-    // ✅ limitar gasto/abuso
-    const safeQtd = Math.max(3, Math.min(Number(qtd) || 20, 40));
-
-    let baseText = "";
-
-    // ✅ texto colado
-    if (text && String(text).trim().length > 20) {
-      baseText = String(text).trim();
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    if (!OPENAI_API_KEY) {
+      return json({ ok: false, error: "Missing OPENAI_API_KEY secret." }, 500);
     }
 
-    // ✅ upload do storage (flash_uploads) via service role (download)
-    if (!baseText && upload_path) {
-      const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const qtd = Number(payload?.qtd ?? payload?.count ?? 12);
+    const count = Number.isFinite(qtd) ? Math.min(Math.max(qtd, 1), 40) : 12;
+    const aggressiveness = String(payload?.aggressiveness ?? "normal");
 
-      const { data, error } = await supabaseAdmin.storage
-        .from("flash_uploads")
-        .download(upload_path);
+    // ✅ precisa conter a palavra "JSON" para usar json_object
+    const instructions = `
+Você é um gerador de flashcards.
+Você DEVE retornar a resposta em JSON.
+Gere ${count} flashcards em pt-BR a partir do texto do usuário.
 
-      if (error) throw error;
+Nível: ${aggressiveness}
 
-      const arrayBuffer = await data.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
-      baseText = await readTextFromBytes(filename || "arquivo.txt", bytes);
-    }
-
-    // ✅ gerar a partir de curso/assuntos (sem texto)
-    if (!baseText && (course || discipline || subjects)) {
-      baseText = `
-Curso: ${course || "—"}
-Disciplina: ${discipline || "—"}
-Assuntos: ${Array.isArray(subjects) ? subjects.join(", ") : subjects || "—"}
-
-Crie flashcards com definições + exemplos.
-`.trim();
-    }
-
-    if (!baseText) {
-      throw new Error("Envie text, upload_path, ou curso/assuntos.");
-    }
-
-    // ✅ limitar tamanho do texto
-    const MAX_CHARS = 9000;
-    if (baseText.length > MAX_CHARS) {
-      baseText = baseText.slice(0, MAX_CHARS);
-    }
-
-    const schedule = buildScheduleMode(aggressiveness as Aggressiveness);
-
-    const prompt = `
-Crie ${safeQtd} flashcards premium estilo Estratégia/Anki a partir do conteúdo abaixo.
+Retorne APENAS um objeto JSON válido (sem markdown), exatamente assim:
+{
+  "cards": [
+    { "front": "pergunta", "back": "resposta", "tags": ["tag1","tag2"] }
+  ]
+}
 
 Regras:
-- Responda SOMENTE JSON válido (sem texto extra)
-- Gere apenas cards do tipo normal: pergunta/resposta (sem cloze)
-- Tags automáticas (3 a 7)
-- Curto, objetivo e útil para revisão
-- Pode usar Markdown e LaTeX quando necessário
-
-Formato:
-[
-  {
-    "tipo": "normal",
-    "pergunta": "...",
-    "resposta": "...",
-    "tags": ["tag1","tag2"]
-  }
-]
-
-Conteúdo:
-${baseText}
+- O JSON deve ser estritamente válido.
+- cards é obrigatório e array.
+- front e back não podem ser vazios.
+- tags deve ser array (pode ser vazio).
 `.trim();
 
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+    const inputWithJsonHint = `TEXTO BASE (gere saída em JSON):\n${text}`;
+
+    const openaiRes = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -335,87 +106,71 @@ ${baseText}
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: "Responda apenas JSON válido em array, sem markdown." },
-          { role: "user", content: prompt },
-        ],
-        temperature: 0.2,
-        response_format: { type: "json_object" },
-        max_tokens: 1600
+        instructions,
+        input: inputWithJsonHint,
+        text: { format: { type: "json_object" } },
       }),
     });
 
-    const result = await resp.json();
+    const openaiRaw = await openaiRes.text();
+    console.log("🤖 OpenAI status:", openaiRes.status);
+    console.log("🤖 OpenAI raw:", openaiRaw);
 
-    if (!resp.ok) {
-      throw new Error(result?.error?.message || "Erro OpenAI");
+    if (!openaiRes.ok) {
+      return json(
+        { ok: false, error: "OpenAI request failed", status: openaiRes.status, details: openaiRaw },
+        502
+      );
     }
 
-    const raw = result?.choices?.[0]?.message?.content || "{}";
-    let parsed: any = {};
+    const openaiJson = JSON.parse(openaiRaw);
+    const outputText = extractOutputText(openaiJson);
+
+    if (!outputText) {
+      return json({ ok: false, error: "OpenAI returned empty output_text.", raw: openaiJson }, 500);
+    }
+
+    let result: any;
     try {
-      parsed = JSON.parse(raw);
+      result = JSON.parse(outputText);
     } catch {
-      parsed = { cards: safeJsonExtract(raw) };
+      return json(
+        { ok: false, error: "Modelo não retornou JSON parseável.", model_output: outputText },
+        500
+      );
     }
 
-    const cardsRaw = Array.isArray(parsed) ? parsed : parsed?.cards;
-
-    // ✅ normalizar cards pra um formato consistente
-    const deck_id = crypto.randomUUID();
-
-    const normalized = (Array.isArray(cardsRaw) ? cardsRaw : []).map((c: any) => ({
-      tipo: "normal",
-      pergunta: String(c?.pergunta ?? c?.cloze_text ?? "").trim(),
-      resposta: String(c?.resposta ?? c?.cloze_answer ?? "").trim(),
-      cloze_text: null,
-      cloze_answer: null,
-      tags: Array.isArray(c?.tags) ? c.tags.map((t: any) => String(t)) : [],
-    }));
-
-    const validCards = normalized.filter((c) => c.pergunta.length >= 3 && c.resposta.length >= 2);
-
-    // ✅ 3) Salvar no banco (RLS) como o usuário autenticado
-    let saved = 0;
-
-    if (save && validCards.length) {
-      const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-      const rows = validCards.map((c) => ({
-        user_id,
-        deck_id,
-        tipo: c.tipo,
-        pergunta: c.pergunta,
-        resposta: c.resposta,
-        cloze_text: c.cloze_text,
-        cloze_answer: c.cloze_answer,
-        tags: c.tags,
-        status: "new",
-        repetitions: 0,
-        ease: 2.5,
-        interval_days: 0,
-        next_review_at: null,
-        last_review_at: null,
-        para_revisao: true,
-        due_date: null,
-      }));
-
-      const { error: insErr } = await supabaseAdmin.from("flash_cards").insert(rows);
-      if (insErr) throw new Error(`Erro ao salvar flashcards: ${insErr.message}`);
-
-      saved = rows.length;
+    if (!Array.isArray(result?.cards)) {
+      return json(
+        { ok: false, error: "Formato inesperado do JSON (sem cards array).", model_json: result },
+        500
+      );
     }
 
-    return json(200, {
-      ok: true,
-      user_id,
-      deck_id,
-      saved,
-      cards: validCards,
-      aggressiveness,
-      schedule,
-    });
-  } catch (e: any) {
-    return json(400, { ok: false, error: String(e?.message || e) });
+    // ✅ Retorna nos DOIS formatos pra não quebrar seu front (pergunta/resposta)
+    const cards = result.cards
+      .map((c: any) => {
+        const front = String(c?.front ?? "").trim();
+        const back = String(c?.back ?? "").trim();
+        const tags = Array.isArray(c?.tags) ? c.tags.map((x: any) => String(x)) : [];
+
+        return {
+          front,
+          back,
+          pergunta: front, // ✅ compatível com seu banco
+          resposta: back,  // ✅ compatível com seu banco
+          tags,
+        };
+      })
+      .filter((c: any) => c.front && c.back);
+
+    if (!cards.length) {
+      return json({ ok: false, error: "A IA não gerou cards válidos.", model_json: result }, 422);
+    }
+
+    return json({ ok: true, cards }, 200);
+  } catch (err) {
+    console.error("🔥 generate-flashcards crashed:", err);
+    return json({ ok: false, error: String((err as any)?.message ?? err) }, 500);
   }
 });

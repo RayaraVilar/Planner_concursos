@@ -176,10 +176,60 @@ export default function Flashcards({ user }) {
     async function callWrite(action, payload) {
         const token = await getTokenOrThrow();
 
-        const { data, error } = await supabase.functions.invoke("flashcards-write", {
-            body: { action, ...payload },
+        const { data, error } = await supabase.functions.invoke("generate-flashcards", {
+            body: {
+                text: aiForm.text,
+                texto: aiForm.text,       // ✅ fallback
+                content: aiForm.text,     // ✅ fallback
+                input: aiForm.text,       // ✅ fallback
+                qtd: Number(aiForm.qtd || 12),
+                count: Number(aiForm.qtd || 12), // ✅ fallback
+                aggressiveness: aiForm.aggressiveness,
+            },
             headers: { Authorization: `Bearer ${token}` },
         });
+        // ✅ ADICIONE ISSO (sem apagar nada)
+        console.log("generate-flashcards error:", error);
+        console.log("generate-flashcards data:", data);
+
+        if (error) {
+            // mantém seu fluxo atual, mas loga melhor
+            console.error("invoke failed:", error);
+        }
+
+        // Se você tem a mensagem "IA não gerou cards válidos", geralmente é porque
+        // você está lendo cards do lugar errado.
+        // Com a function acima, sempre vem: data = { ok: true/false, cards: [...] }
+
+        const cards = data?.cards ?? []; // ✅ aqui é o ponto principal
+
+        console.log("cards recebidos:", cards);
+
+        // Exemplo de validação segura (não apaga sua validação, só ajuda)
+        const valid = cards.filter((c) => (c?.pergunta || c?.front) && (c?.resposta || c?.back));
+
+        console.log("cards válidos:", valid);
+
+        const deckId = selectedDeck?.id; // isso precisa ser o UUID do deck
+        // ou, se você guarda num state: const deckId = selectedDeckId;
+
+        const toInsert = valid.map((c) => ({
+            user_id: userId,
+            deck_id: deckId,              // ✅ ESSENCIAL
+            topic_id: selectedTopic?.id ?? null,      // opcional
+            discipline_id: selectedDiscipline?.id ?? null, // opcional
+            pergunta: c.pergunta ?? c.front,
+            resposta: c.resposta ?? c.back,
+            tags: c.tags ?? [],
+            tipo: "normal",
+        }));
+
+        const { error: insErr } = await supabase.from("flash_cards").insert(toInsert);
+        if (insErr) console.error(insErr);
+
+        console.log("payload insert:", toInsert);
+
+        if (error) console.error(error);
 
         if (error) {
             console.error("flashcards-write error:", error);
@@ -310,7 +360,7 @@ export default function Flashcards({ user }) {
             try {
                 const modern = await supabase
                     .from("flash_decks")
-                    .select("id,nome,name,topic_id,subject_id,created_at")
+                    .select("id,name,topic_id,created_at")
                     .eq("user_id", userId)
                     .or(`topic_id.eq.${baseId},subject_id.eq.${baseId}`)
                     .order("created_at", { ascending: false });
@@ -346,7 +396,7 @@ export default function Flashcards({ user }) {
                     .from("flash_cards")
                     .select("id,pergunta,resposta,tags,created_at")
                     .eq("user_id", userId)
-                    .eq("deck_id", deck_id)
+                    .eq("deck_id", selectedDeck.id)   // ✅ UUID
                     .order("created_at", { ascending: false });
 
                 setTree((p) => ({ ...p, cards: data || [] }));
@@ -691,9 +741,19 @@ export default function Flashcards({ user }) {
         try {
             const token = await getTokenOrThrow();
             const { data, error } = await supabase.functions.invoke("generate-flashcards", {
-                body: { text: aiForm.text, qtd: Number(aiForm.qtd || 12), aggressiveness: aiForm.aggressiveness },
+                body: {
+                    text: aiForm.text,
+                    texto: aiForm.text,       // ✅ fallback
+                    content: aiForm.text,     // ✅ fallback
+                    input: aiForm.text,       // ✅ fallback
+                    qtd: Number(aiForm.qtd || 12),
+                    count: Number(aiForm.qtd || 12), // ✅ fallback
+                    aggressiveness: aiForm.aggressiveness,
+                },
                 headers: { Authorization: `Bearer ${token}` },
             });
+
+            if (error) console.error(error);
 
             // ✅ Loga o erro real
             if (error) console.error("generate-flashcards invoke error:", error);
