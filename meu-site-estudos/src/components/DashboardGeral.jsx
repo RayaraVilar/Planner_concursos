@@ -41,6 +41,30 @@ function sumBy(arr, fn) {
     return (arr || []).reduce((acc, x) => acc + Number(fn(x) || 0), 0);
 }
 
+function startOfDay(d) {
+    const x = new Date(d);
+    x.setHours(0, 0, 0, 0);
+    return x;
+}
+
+function addDays(d, n) {
+    const x = new Date(d);
+    x.setDate(x.getDate() + n);
+    return x;
+}
+
+function dayKey(d) {
+    const x = startOfDay(d);
+    return x.toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+function labelDiaPT(d) {
+    // TER, QUA, QUI... como na imagem (2ª, 3ª, etc. fica estranho)
+    const wd = new Date(d).getDay(); // 0 dom, 1 seg...
+    const map = ["DOM", "SEG", "TER", "QUA", "QUI", "SEX", "SÁB"];
+    return map[wd] || "";
+}
+
 export default function DashboardGeral({ user }) {
     const [loading, setLoading] = useState(true);
     const [erro, setErro] = useState("");
@@ -81,13 +105,11 @@ export default function DashboardGeral({ user }) {
                     .select("minutos, started_at, subject_id")
                     .eq("user_id", user.id),
 
-                // ✅ seu schema tem: nome, meta_minutos, minutos_planejados, minutos_feitos
                 supabase
                     .from("study_cycle_subjects")
                     .select("id, nome, meta_minutos, minutos_planejados, minutos_feitos")
                     .eq("user_id", user.id),
 
-                // ✅ seu schema tem: is_favorite, repetitions, wrong_total, etc.
                 supabase
                     .from("flash_cards")
                     .select("id, is_favorite, repetitions, wrong_total, created_at")
@@ -142,20 +164,29 @@ export default function DashboardGeral({ user }) {
     }, [user?.id]);
 
     const stats = useMemo(() => {
+        // ====== SESSÕES (Estudar Agora) ======
         const totalSegSessoes = sumBy(dados.sessoes, (s) => s.duracao_segundos);
+
         const segCronometro = sumBy(
             dados.sessoes.filter((s) => s.modo === "cronometro"),
             (s) => s.duracao_segundos
         );
+
         const segManual = sumBy(
             dados.sessoes.filter((s) => s.modo === "manual"),
             (s) => s.duracao_segundos
         );
 
-        const minutosCiclo = sumBy(dados.cicloSessoes, (s) => s.minutos);
+        // ====== CICLO ======
+        // ❗ CORREÇÃO: se você “zera” o ciclo, normalmente você zera "minutos_feitos" nas matérias.
+        // Então NÃO use study_cycle_sessions pra horas do ciclo, porque ali é histórico (não zera sozinho).
         const minutosPlanejadosCiclo = sumBy(dados.cicloMaterias, (s) => s.minutos_planejados);
         const minutosFeitosCiclo = sumBy(dados.cicloMaterias, (s) => s.minutos_feitos);
 
+        // (se você quiser ainda usar o histórico pra outras telas, ok, mas aqui no dashboard geral não)
+        const minutosCicloParaDashboard = minutosFeitosCiclo;
+
+        // ====== OUTROS ======
         const tarefasTotal = dados.tarefas.length;
         const tarefasConcluidas = dados.tarefas.filter((t) => t.concluida).length;
 
@@ -164,11 +195,8 @@ export default function DashboardGeral({ user }) {
         const revisoesQuestoesFeitas = sumBy(dados.revisoes, (r) => r.qtd_feitas);
         const revisoesAcertos = sumBy(dados.revisoes, (r) => r.qtd_acertos);
 
-        // Flashcards (sem tabela flash_card_reviews)
         const cardsTotal = dados.cards.length;
         const cardsFavoritos = dados.cards.filter((c) => c.favoritos).length;
-
-        // “revisões” aproximadas (quantas vezes revisou): soma repetitions
         const reviewsTotal = sumBy(dados.cards, (c) => c.repetitions);
 
         const topMaterias = Object.entries(
@@ -190,17 +218,43 @@ export default function DashboardGeral({ user }) {
         const fontesHoras = [
             { nome: "Cronômetro", valor: segCronometro / 3600, cor: "bg-cyan-500" },
             { nome: "Manual", valor: segManual / 3600, cor: "bg-violet-500" },
-            { nome: "Ciclo", valor: minutosCiclo / 60, cor: "bg-emerald-500" },
+            { nome: "Ciclo", valor: minutosCicloParaDashboard / 60, cor: "bg-emerald-500" },
         ];
 
         const totalFontesHoras = fontesHoras.reduce((acc, f) => acc + f.valor, 0);
 
-        return {
-            horasTotais: totalSegSessoes / 3600 + minutosCiclo / 60,
-            horasCronometro: segCronometro / 3600,
-            horasManual: segManual / 3600,
-            horasCiclo: minutosCiclo / 60,
+        // ====== ÚLTIMOS 7 DIAS (sessoes_estudo) ======
+        const hoje = startOfDay(new Date());
+        const inicioJanela = addDays(hoje, -6);
 
+        const mapaSegPorDia = (dados.sessoes || []).reduce((acc, s) => {
+            const dt = s.inicio_em ? new Date(s.inicio_em) : null;
+            if (!dt || Number.isNaN(dt.getTime())) return acc;
+
+            const d0 = startOfDay(dt);
+            if (d0 < inicioJanela || d0 > hoje) return acc;
+
+            const k = dayKey(d0);
+            acc[k] = (acc[k] || 0) + Number(s.duracao_segundos || 0);
+            return acc;
+        }, {});
+
+        const ultimos7Dias = Array.from({ length: 7 }).map((_, i) => {
+            const dia = addDays(inicioJanela, i);
+            const k = dayKey(dia);
+            const seg = Number(mapaSegPorDia[k] || 0);
+            const horas = seg / 3600;
+            return {
+                key: k,
+                label: labelDiaPT(dia),
+                horas,
+            };
+        });
+
+        const maxHoras7 = Math.max(...ultimos7Dias.map((d) => d.horas), 0.001);
+
+        return {
+            horasTotais: totalSegSessoes / 3600 + minutosCicloParaDashboard / 60,
             progressoCiclo,
             minutosPlanejadosCiclo,
             minutosFeitosCiclo,
@@ -221,6 +275,9 @@ export default function DashboardGeral({ user }) {
             topMaterias,
             fontesHoras,
             totalFontesHoras,
+
+            ultimos7Dias,
+            maxHoras7,
         };
     }, [dados]);
 
@@ -277,6 +334,39 @@ export default function DashboardGeral({ user }) {
                 <div className="text-sm text-slate-500">Carregando estatísticas...</div>
             ) : (
                 <>
+                    {/* ✅ ADICIONADO: Estudo nos últimos 7 dias (igual à imagem) */}
+                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 p-5 bg-white/60 dark:bg-slate-900/40">
+                        <h3 className="font-bold mb-4 flex items-center gap-2">
+                            <BarChart3 size={16} /> Estudo nos últimos 7 dias
+                        </h3>
+
+                        <div className="grid grid-cols-7 gap-4">
+                            {stats.ultimos7Dias.map((d) => {
+                                const pct = Math.max(3, Math.round((d.horas / stats.maxHoras7) * 100)); // mínimo pra “aparecer”
+                                return (
+                                    <div key={d.key} className="flex flex-col items-center gap-2">
+                                        <div className="w-full h-28 rounded-xl bg-slate-100/60 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-700/60 overflow-hidden flex items-end">
+                                            {/* barrinha preenchida */}
+                                            <div
+                                                className="w-full"
+                                                style={{
+                                                    height: `${pct}%`,
+                                                }}
+                                            >
+                                                <div className="h-full w-full bg-gradient-to-t from-cyan-500/35 via-violet-500/25 to-fuchsia-500/20" />
+                                                {/* “linha” colorida no rodapé, como na imagem */}
+                                                <div className="h-1.5 w-full bg-gradient-to-r from-cyan-400 via-violet-500 to-fuchsia-500" />
+                                            </div>
+                                        </div>
+
+                                        <div className="text-xs text-slate-500 dark:text-slate-400">{d.label}</div>
+                                        <div className="text-sm font-bold">{d.horas.toFixed(1)}h</div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+
                     <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
                         <Card
                             title="Horas totais estudadas"

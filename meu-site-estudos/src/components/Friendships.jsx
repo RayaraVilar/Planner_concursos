@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
 
 function Friendships() {
@@ -38,16 +38,18 @@ function Friendships() {
       .single();
 
     // Se não existir, tenta UPSERT (fallback seguro)
-    if (error && (error.code === "PGRST116" || String(error.message || "").includes("0 rows"))) {
-      const { error: upErr } = await supabase
-        .from("perfis")
-        .upsert(
-          {
-            id: user.id,
-            nome: user.user_metadata?.name ?? user.email ?? null,
-          },
-          { onConflict: "id" }
-        );
+    if (
+      error &&
+      (error.code === "PGRST116" ||
+        String(error.message || "").includes("0 rows"))
+    ) {
+      const { error: upErr } = await supabase.from("perfis").upsert(
+        {
+          id: user.id,
+          nome: user.user_metadata?.name ?? user.email ?? null,
+        },
+        { onConflict: "id" }
+      );
 
       if (upErr) throw upErr;
 
@@ -67,7 +69,7 @@ function Friendships() {
     setMyName(data?.nome ?? "");
   };
 
-  // ✅ Agora lê da VIEW que já traz requester_nome
+  // ✅ VIEW que traz requester_nome
   const loadIncomingRequests = async () => {
     setLoadingPending(true);
 
@@ -82,25 +84,79 @@ function Friendships() {
     setPendingRequests(data ?? []);
   };
 
+  // ✅ Ranking: inclui você + ordena + empate com mesma posição/medalha
   const loadFriendsRanking = async () => {
     setLoadingRanking(true);
 
-    const { data, error } = await supabase
-      .from("v_friend_ranking")
-      .select("user_id, nome, level, title, xp_total");
+    try {
+      // 1) ranking de amigos (view)
+      const { data: friendsRank, error: friendsErr } = await supabase
+        .from("v_friend_ranking")
+        .select("user_id, nome, level, title, xp_total");
 
-    setLoadingRanking(false);
+      if (friendsErr) throw friendsErr;
 
-    if (error) throw error;
+      // 2) buscar seus dados (tentando pegar xp/level/title do perfis, se existir)
+      let meRow = null;
 
-    setRanking(data ?? []);
+      if (myUserId) {
+        const { data: meProfile, error: meErr } = await supabase
+          .from("perfis")
+          .select("id, nome, level, title, xp_total")
+          .eq("id", myUserId)
+          .single();
+
+        if (!meErr && meProfile) {
+          meRow = {
+            user_id: meProfile.id,
+            nome: meProfile.nome ?? myName ?? "-",
+            level: meProfile.level ?? null,
+            title: meProfile.title ?? null,
+            xp_total: meProfile.xp_total ?? 0,
+          };
+        }
+      }
+
+      // 3) fallback do "eu" caso não tenha vindo do banco
+      if (!meRow && myUserId) {
+        meRow = {
+          user_id: myUserId,
+          nome: myName || "(você)",
+          level: null,
+          title: null,
+          xp_total: 0,
+        };
+      }
+
+      // 4) merge sem duplicar (Map por user_id)
+      const map = new Map();
+      (friendsRank ?? []).forEach((r) => {
+        if (!r?.user_id) return;
+        map.set(r.user_id, r);
+      });
+      if (meRow?.user_id) map.set(meRow.user_id, meRow);
+
+      const merged = Array.from(map.values());
+
+      // 5) ordenar (xp_total desc) + desempate por nome
+      merged.sort((a, b) => {
+        const ax = Number(a?.xp_total ?? 0);
+        const bx = Number(b?.xp_total ?? 0);
+        if (bx !== ax) return bx - ax;
+
+        const an = String(a?.nome ?? "");
+        const bn = String(b?.nome ?? "");
+        return an.localeCompare(bn, "pt-BR");
+      });
+
+      setRanking(merged);
+    } finally {
+      setLoadingRanking(false);
+    }
   };
 
   const sendFriendRequestByCode = async (inviteCode) => {
-    const code = inviteCode
-      .trim()
-      .toUpperCase()
-      .replace(/\s+/g, "");
+    const code = inviteCode.trim().toUpperCase().replace(/\s+/g, "");
 
     const {
       data: { user },
@@ -110,9 +166,10 @@ function Friendships() {
     if (authError || !user) throw new Error("Não logado");
 
     // ✅ RPC segura
-    const { data: friendId, error: rpcErr } = await supabase.rpc("resolve_invite_code", {
-      code,
-    });
+    const { data: friendId, error: rpcErr } = await supabase.rpc(
+      "resolve_invite_code",
+      { code }
+    );
 
     if (rpcErr || !friendId) throw new Error("Código inválido.");
 
@@ -142,7 +199,7 @@ function Friendships() {
     return true;
   };
 
-  // ✅ bootstrap resiliente (não quebra tudo se 1 chamada falhar)
+  // ✅ bootstrap resiliente
   const bootstrap = async () => {
     try {
       await loadMyInviteCode();
@@ -168,14 +225,18 @@ function Friendships() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // garante "eu" incluso quando myUserId chega
+  useEffect(() => {
+    if (myUserId) loadFriendsRanking().catch(() => { });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myUserId, myName]);
+
   const enviarPedido = async (e) => {
     e.preventDefault();
-
     try {
       await sendFriendRequestByCode(inviteCodeInput);
       setInviteCodeInput("");
       alert("Convite enviado com sucesso.");
-      // (Pendentes são os recebidos; aqui não muda, mas pode manter)
       await loadIncomingRequests();
     } catch (error) {
       alert(error.message || "Não foi possível enviar o convite.");
@@ -191,6 +252,27 @@ function Friendships() {
       alert(error.message || "Não foi possível aceitar o pedido.");
     }
   };
+
+  // ✅ Ranking com empate (posição densa):
+  // Ex: 1000, 1000, 900 => posições 1,1,2
+  const rankingComEmpate = useMemo(() => {
+    let lastXp = null;
+    let currentPosition = 0;
+
+    return (ranking ?? []).map((item, index) => {
+      const xp = Number(item?.xp_total ?? 0);
+
+      if (lastXp === null || xp !== lastXp) {
+        currentPosition = index + 1; // posição baseada no índice, mas só muda quando XP muda
+        lastXp = xp;
+      }
+
+      return {
+        ...item,
+        posicao: currentPosition,
+      };
+    });
+  }, [ranking]);
 
   return (
     <div className="space-y-8">
@@ -276,7 +358,7 @@ function Friendships() {
 
         {loadingRanking ? (
           <p className="text-slate-500">Carregando...</p>
-        ) : ranking.length === 0 ? (
+        ) : rankingComEmpate.length === 0 ? (
           <p className="text-slate-500">Sem dados no ranking ainda.</p>
         ) : (
           <div className="overflow-x-auto">
@@ -291,19 +373,29 @@ function Friendships() {
                 </tr>
               </thead>
               <tbody>
-                {ranking.map((row, index) => {
+                {rankingComEmpate.map((row) => {
                   const isMe = myUserId && row.user_id === myUserId;
+
                   return (
                     <tr
                       key={row.user_id}
                       className={[
                         "border-b border-slate-100 dark:border-slate-900",
-                        isMe ? "bg-cyan-50 dark:bg-cyan-950/30" : "",
+                        isMe
+                          ? "bg-cyan-50 dark:bg-cyan-950/30 ring-1 ring-cyan-200/70 dark:ring-cyan-900/50"
+                          : "",
                       ].join(" ")}
                     >
-                      <td className="py-2 pr-4 text-sm font-semibold">{medalha(index + 1)}</td>
-                      <td className="py-2 pr-4 text-sm">
-                        {row.nome ?? "-"} {isMe ? "(você)" : ""}
+                      <td className="py-2 pr-4 text-sm font-semibold">
+                        {medalha(row.posicao)}
+                      </td>
+                      <td className="py-2 pr-4 text-sm font-medium">
+                        {row.nome ?? "-"}{" "}
+                        {isMe ? (
+                          <span className="text-cyan-700 dark:text-cyan-300 font-semibold">
+                            (você)
+                          </span>
+                        ) : null}
                       </td>
                       <td className="py-2 pr-4 text-sm">{row.xp_total ?? 0}</td>
                       <td className="py-2 pr-4 text-sm">{row.level ?? "-"}</td>
