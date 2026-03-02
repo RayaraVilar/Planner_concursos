@@ -4,1401 +4,1271 @@ import { ChevronLeft, Pencil, Plus, Sparkles, Trash2, Upload } from "lucide-reac
 import * as pdfjsLib from "pdfjs-dist";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.js",
-  import.meta.url
+    "pdfjs-dist/build/pdf.worker.min.js",
+    import.meta.url
 ).toString();
 
 const initialTree = {
-  courses: [],
-  disciplines: [],
-  subjects: [],
-  topics: [],
-  decks: [],
-  cards: [],
+    courses: [],
+    disciplines: [],
+    subjects: [],
+    topics: [],
+    decks: [],
+    cards: [],
 };
 
 const LEVEL_LABEL = {
-  courses: "Cursos",
-  disciplines: "Disciplinas",
-  subjects: "Assuntos",
-  topics: "Tópicos",
-  decks: "Decks",
-  cards: "Cards",
+    courses: "Cursos",
+    disciplines: "Disciplinas",
+    subjects: "Assuntos",
+    topics: "Tópicos",
+    decks: "Decks",
+    cards: "Cards",
 };
 
 function normalizeNameRow(row) {
-  return { ...row, nome: row.nome ?? row.name ?? "" };
+    return { ...row, nome: row.nome ?? row.name ?? "" };
 }
 
 function safeTags(text) {
-  return String(text || "")
-    .split(",")
-    .map((t) => t.trim().toLowerCase())
-    .filter(Boolean)
-    .slice(0, 8);
+    return String(text || "")
+        .split(",")
+        .map((t) => t.trim().toLowerCase())
+        .filter(Boolean)
+        .slice(0, 8);
 }
 
 function parsePairs(text) {
-  const lines = String(text || "")
-    .split("\n")
-    .map((l) => l.trim())
-    .filter(Boolean);
+    const lines = String(text || "")
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean);
 
-  const pairs = [];
-  for (const line of lines) {
-    let parts = line.split("|");
-    if (parts.length < 2) parts = line.split(" - ");
-    if (parts.length < 2) continue;
+    const pairs = [];
+    for (const line of lines) {
+        let parts = line.split("|");
+        if (parts.length < 2) parts = line.split(" - ");
+        if (parts.length < 2) continue;
 
-    const pergunta = parts[0]?.trim();
-    const resposta = parts.slice(1).join("|").trim();
-    if (!pergunta || !resposta) continue;
+        const pergunta = parts[0]?.trim();
+        const resposta = parts.slice(1).join("|").trim();
+        if (!pergunta || !resposta) continue;
 
-    pairs.push({ pergunta, resposta });
-  }
-  return pairs.slice(0, 60);
+        pairs.push({ pergunta, resposta });
+    }
+    return pairs.slice(0, 60);
 }
 
 const ui = {
-  wrap: "w-full max-w-3xl mx-auto",
-  headerTitle: "text-2xl font-black text-slate-900 dark:text-white",
-  headerSub: "text-sm text-slate-500 dark:text-slate-400",
+    wrap: "w-full max-w-3xl mx-auto",
+    headerTitle: "text-2xl font-black text-slate-900 dark:text-white",
+    headerSub: "text-sm text-slate-500 dark:text-slate-400",
 
-  btnEdit:
-    "flex items-center gap-2 px-4 py-2 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white transition font-black text-xs",
-  btnBack:
-    "flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition font-black text-xs",
-  btnPrimary:
-    "flex items-center gap-2 px-4 py-2 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white transition font-black text-xs disabled:opacity-60 disabled:cursor-not-allowed",
-  btnDark:
-    "px-4 py-2 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white transition font-black text-xs disabled:opacity-60 disabled:cursor-not-allowed",
-  btnGhost:
-    "px-4 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition font-black text-xs disabled:opacity-60 disabled:cursor-not-allowed",
+    btnEdit:
+        "flex items-center gap-2 px-4 py-2 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white transition font-black text-xs",
+    btnBack:
+        "flex items-center gap-2 px-4 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition font-black text-xs",
+    btnPrimary:
+        "flex items-center gap-2 px-4 py-2 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white transition font-black text-xs disabled:opacity-60 disabled:cursor-not-allowed",
+    btnDark:
+        "px-4 py-2 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white transition font-black text-xs disabled:opacity-60 disabled:cursor-not-allowed",
+    btnGhost:
+        "px-4 py-2 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 transition font-black text-xs disabled:opacity-60 disabled:cursor-not-allowed",
 
-  panel:
-    "p-6 rounded-[32px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl",
-  panelSoft:
-    "p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm",
+    panel:
+        "p-6 rounded-[32px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl",
+    panelSoft:
+        "p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm",
 
-  tile:
-    "w-full text-left flex items-center justify-between p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:bg-slate-50 dark:hover:bg-slate-800/60 transition",
-  tileTitle: "text-base font-black text-slate-900 dark:text-white",
-  tileMeta: "text-xs text-slate-500 dark:text-slate-400 font-bold",
-  iconMuted: "text-slate-400",
+    tile:
+        "w-full text-left flex items-center justify-between p-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm hover:shadow-md hover:bg-slate-50 dark:hover:bg-slate-800/60 transition",
+    tileTitle: "text-base font-black text-slate-900 dark:text-white",
+    tileMeta: "text-xs text-slate-500 dark:text-slate-400 font-bold",
+    iconMuted: "text-slate-400",
 
-  input:
-    "mt-2 w-full px-4 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold outline-none placeholder:text-slate-500 dark:placeholder:text-slate-500",
-  textarea:
-    "mt-2 w-full px-4 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold outline-none placeholder:text-slate-500 dark:placeholder:text-slate-500 min-h-[110px]",
+    input:
+        "mt-2 w-full px-4 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold outline-none placeholder:text-slate-500 dark:placeholder:text-slate-500",
+    textarea:
+        "mt-2 w-full px-4 py-3 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-white font-bold outline-none placeholder:text-slate-500 dark:placeholder:text-slate-500 min-h-[110px]",
 
-  overlay: "fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4",
-  modal:
-    "w-full max-w-2xl p-6 rounded-[32px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl",
-  modalCard:
-    "p-4 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition text-left",
-  modalTitle: "text-lg font-black text-slate-900 dark:text-white",
-  modalText: "text-xs text-slate-500 dark:text-slate-400 font-bold",
+    overlay: "fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4",
+    modal:
+        "w-full max-w-2xl p-6 rounded-[32px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xl",
+    modalCard:
+        "p-4 rounded-3xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition text-left",
+    modalTitle: "text-lg font-black text-slate-900 dark:text-white",
+    modalText: "text-xs text-slate-500 dark:text-slate-400 font-bold",
 };
 
 export default function Flashcards({ user }) {
-  const userId = user?.id;
+    const userId = user?.id;
 
-  const [level, setLevel] = useState("courses");
+    const [level, setLevel] = useState("courses");
 
-  const [courseId, setCourseId] = useState("");
-  const [disciplineId, setDisciplineId] = useState("");
-  const [subjectId, setSubjectId] = useState("");
-  const [topicId, setTopicId] = useState("");
-  const [deckId, setDeckId] = useState("");
+    const [courseId, setCourseId] = useState("");
+    const [disciplineId, setDisciplineId] = useState("");
+    const [subjectId, setSubjectId] = useState("");
+    const [topicId, setTopicId] = useState("");
+    const [deckId, setDeckId] = useState("");
 
-  const [isLegacySubjects, setIsLegacySubjects] = useState(false);
+    const [isLegacySubjects, setIsLegacySubjects] = useState(false);
 
-  const [tree, setTree] = useState(initialTree);
+    const [tree, setTree] = useState(initialTree);
 
-  const [loading, setLoading] = useState(false);
-  const [aiLoading, setAiLoading] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [aiLoading, setAiLoading] = useState(false);
 
-  const [editMode, setEditMode] = useState(false);
-  const [newName, setNewName] = useState("");
+    const [editMode, setEditMode] = useState(false);
+    const [newName, setNewName] = useState("");
 
-  const [cardForm, setCardForm] = useState({ pergunta: "", resposta: "", tags: "" });
-  const [aiForm, setAiForm] = useState({ text: "", qtd: 12, aggressiveness: "medio" });
+    const [cardForm, setCardForm] = useState({ pergunta: "", resposta: "", tags: "" });
+    const [aiForm, setAiForm] = useState({ text: "", qtd: 12, aggressiveness: "medio" });
 
-  const [createCardsOpen, setCreateCardsOpen] = useState(false);
-  const [createMode, setCreateMode] = useState("");
-  const [errorsPaste, setErrorsPaste] = useState("");
-  const [bulkLoading, setBulkLoading] = useState(false);
+    const [createCardsOpen, setCreateCardsOpen] = useState(false);
+    const [createMode, setCreateMode] = useState("");
+    const [errorsPaste, setErrorsPaste] = useState("");
+    const [bulkLoading, setBulkLoading] = useState(false);
 
-  const [pdfLoading, setPdfLoading] = useState(false);
-  const [pdfInfo, setPdfInfo] = useState("");
-  const [flippedCards, setFlippedCards] = useState({});
-  const [reviewResults, setReviewResults] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("flash_review_results") || "{}");
-    } catch {
-      return {};
-    }
-  });
-  const [errorDeckLoading, setErrorDeckLoading] = useState(false);
-
-  const selectedDeck = useMemo(() => tree.decks.find((d) => d.id === deckId), [tree.decks, deckId]);
-
-  useEffect(() => {
-    localStorage.setItem("flash_review_results", JSON.stringify(reviewResults));
-  }, [reviewResults]);
-
-  const breadcrumb = useMemo(() => {
-    const parts = [{ key: "courses", label: "Cursos" }];
-
-    if (courseId) parts.push({ key: "disciplines", label: "Disciplinas" });
-    if (disciplineId) parts.push({ key: "subjects", label: "Assuntos" });
-
-    if (!isLegacySubjects && subjectId) parts.push({ key: "topics", label: "Tópicos" });
-
-    const decksReady = isLegacySubjects ? Boolean(subjectId) : Boolean(topicId);
-    if (decksReady) parts.push({ key: "decks", label: "Decks" });
-
-    if (deckId) parts.push({ key: "cards", label: "Cards" });
-
-    return parts;
-  }, [courseId, disciplineId, subjectId, topicId, deckId, isLegacySubjects]);
-
-  async function getTokenOrThrow() {
-    const { data: auth } = await supabase.auth.getSession();
-    const token = auth?.session?.access_token;
-    if (!token) throw new Error("Sessão expirada. Faça login novamente.");
-    return token;
-  }
-
-  async function callWrite(action, payload) {
-    const token = await getTokenOrThrow();
-
-    const { data, error } = await supabase.functions.invoke("flashcards-write", {
-      body: { action, ...payload },
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (error) {
-      let msg = error?.message || "Falha na Edge Function";
-      try {
-        const details = await error?.context?.json?.();
-        msg = details?.error || details?.message || msg;
-      } catch {
-        // noop
-      }
-      throw new Error(msg);
-    }
-
-    if (!data?.ok) {
-      throw new Error(data?.error || "Falha ao salvar.");
-    }
-
-    return data?.data?.id;
-  }
-
-  async function selectList({ table, selectModern, selectLegacy, filter = {} }) {
-    let q1 = supabase.from(table).select(selectModern).eq("user_id", userId);
-    Object.entries(filter).forEach(([k, v]) => (q1 = q1.eq(k, v)));
-    const modern = await q1.order("created_at", { ascending: false });
-    if (!modern.error) return (modern.data || []).map(normalizeNameRow);
-
-    let q2 = supabase.from(table).select(selectLegacy).eq("user_id", userId);
-    Object.entries(filter).forEach(([k, v]) => (q2 = q2.eq(k, v)));
-    const legacy = await q2.order("created_at", { ascending: false });
-    if (legacy.error) throw modern.error;
-    return (legacy.data || []).map(normalizeNameRow);
-  }
-
-  const loadCourses = useCallback(async () => {
-    setLoading(true);
-    try {
-      const rows = await selectList({
-        table: "flash_courses",
-        selectModern: "id,nome,created_at",
-        selectLegacy: "id,name,created_at",
-      });
-      setTree((p) => ({ ...p, courses: rows }));
-    } finally {
-      setLoading(false);
-    }
-  }, [userId]);
-
-  const loadDisciplines = useCallback(
-    async (course_id) => {
-      setLoading(true);
-      try {
-        const rows = await selectList({
-          table: "flash_disciplines",
-          selectModern: "id,nome,course_id,created_at",
-          selectLegacy: "id,name,course_id,created_at",
-          filter: { course_id },
-        });
-        setTree((p) => ({ ...p, disciplines: rows }));
-      } finally {
-        setLoading(false);
-      }
-    },
-    [userId]
-  );
-
-  const loadSubjects = useCallback(
-    async (discipline_id) => {
-      setLoading(true);
-      try {
-        const res = await supabase
-          .from("flash_subjects")
-          .select("id,nome,discipline_id,created_at")
-          .eq("user_id", userId)
-          .eq("discipline_id", discipline_id)
-          .order("created_at", { ascending: false });
-
-        if (!res.error) {
-          setIsLegacySubjects(false);
-          setTree((p) => ({ ...p, subjects: (res.data || []).map(normalizeNameRow) }));
-          return;
-        }
-
-        const legacy = await supabase
-          .from("flash_topics")
-          .select("id,name,discipline_id,created_at")
-          .eq("user_id", userId)
-          .eq("discipline_id", discipline_id)
-          .order("created_at", { ascending: false });
-
-        if (legacy.error) throw res.error;
-
-        setIsLegacySubjects(true);
-        setTree((p) => ({
-          ...p,
-          subjects: (legacy.data || []).map((r) => ({ ...r, nome: r.name })),
-        }));
-      } finally {
-        setLoading(false);
-      }
-    },
-    [userId]
-  );
-
-  const loadTopics = useCallback(
-    async (subject_id) => {
-      setLoading(true);
-      try {
-        const res = await supabase
-          .from("flash_topics")
-          .select("id,name,subject_id,created_at")
-          .eq("user_id", userId)
-          .eq("subject_id", subject_id)
-          .order("created_at", { ascending: false });
-
-        setTree((p) => ({
-          ...p,
-          topics: (res.data || []).map((r) => ({ id: r.id, nome: r.name })),
-        }));
-      } finally {
-        setLoading(false);
-      }
-    },
-    [userId]
-  );
-
-  const loadDecks = useCallback(
-    async (baseId) => {
-      setLoading(true);
-      try {
-        const modern = await supabase
-          .from("flash_decks")
-          .select("id,nome,name,topic_id,subject_id,created_at")
-          .eq("user_id", userId)
-          .or(`topic_id.eq.${baseId},subject_id.eq.${baseId}`)
-          .order("created_at", { ascending: false });
-
-        if (!modern.error) {
-          setTree((p) => ({ ...p, decks: (modern.data || []).map(normalizeNameRow) }));
-          return;
-        }
-
-        const legacy = await supabase
-          .from("flash_decks")
-          .select("id,name,topic_id,created_at")
-          .eq("user_id", userId)
-          .eq("topic_id", baseId)
-          .order("created_at", { ascending: false });
-
-        setTree((p) => ({
-          ...p,
-          decks: (legacy.data || []).map((r) => ({ ...r, nome: r.name })),
-        }));
-      } finally {
-        setLoading(false);
-      }
-    },
-    [userId]
-  );
-
-  const loadCards = useCallback(
-    async (deck_id) => {
-      setLoading(true);
-      try {
-        const { data } = await supabase
-          .from("flash_cards")
-          .select("id,pergunta,resposta,tags,created_at")
-          .eq("user_id", userId)
-          .eq("deck_id", deck_id)
-          .order("created_at", { ascending: false });
-
-        setTree((p) => ({ ...p, cards: data || [] }));
-      } finally {
-        setLoading(false);
-      }
-    },
-    [userId]
-  );
-
-  useEffect(() => {
-    if (!userId) return;
-
-    setTree(initialTree);
-    setLevel("courses");
-    setCourseId("");
-    setDisciplineId("");
-    setSubjectId("");
-    setTopicId("");
-    setDeckId("");
-    setIsLegacySubjects(false);
-    setNewName("");
-    setCreateCardsOpen(false);
-    setCreateMode("");
-    setErrorsPaste("");
-    setPdfInfo("");
-    setPdfLoading(false);
-
-    loadCourses();
-  }, [userId, loadCourses]);
-
-  function clearBelow(nextLevel) {
-    if (nextLevel === "courses") {
-      setCourseId("");
-      setDisciplineId("");
-      setSubjectId("");
-      setTopicId("");
-      setDeckId("");
-      setIsLegacySubjects(false);
-      setTree((p) => ({ ...p, disciplines: [], subjects: [], topics: [], decks: [], cards: [] }));
-      return;
-    }
-
-    if (nextLevel === "disciplines") {
-      setDisciplineId("");
-      setSubjectId("");
-      setTopicId("");
-      setDeckId("");
-      setIsLegacySubjects(false);
-      setTree((p) => ({ ...p, subjects: [], topics: [], decks: [], cards: [] }));
-      return;
-    }
-
-    if (nextLevel === "subjects") {
-      setSubjectId("");
-      setTopicId("");
-      setDeckId("");
-      setTree((p) => ({ ...p, topics: [], decks: [], cards: [] }));
-      return;
-    }
-
-    if (nextLevel === "topics") {
-      setTopicId("");
-      setDeckId("");
-      setTree((p) => ({ ...p, decks: [], cards: [] }));
-      return;
-    }
-
-    if (nextLevel === "decks") {
-      setDeckId("");
-      setTree((p) => ({ ...p, cards: [] }));
-      return;
-    }
-
-    if (nextLevel === "cards") {
-      setTree((p) => ({ ...p, cards: [] }));
-    }
-  }
-
-  async function enter(nextLevel, id) {
-    setNewName("");
-    setCreateCardsOpen(false);
-    setCreateMode("");
-    setErrorsPaste("");
-    setPdfInfo("");
-
-    if (nextLevel === "disciplines") {
-      setCourseId(id);
-      clearBelow("disciplines");
-      setLevel("disciplines");
-      await loadDisciplines(id);
-      return;
-    }
-
-    if (nextLevel === "subjects") {
-      setDisciplineId(id);
-      clearBelow("subjects");
-      setLevel("subjects");
-      await loadSubjects(id);
-      return;
-    }
-
-    if (nextLevel === "topics") {
-      setSubjectId(id);
-      clearBelow("topics");
-      setLevel("topics");
-      await loadTopics(id);
-      return;
-    }
-
-    if (nextLevel === "decks") {
-      if (isLegacySubjects) {
-        setSubjectId(id);
-      } else {
-        setTopicId(id);
-      }
-      clearBelow("decks");
-      setLevel("decks");
-      await loadDecks(id);
-      return;
-    }
-
-    if (nextLevel === "cards") {
-      setDeckId(id);
-      clearBelow("cards");
-      setLevel("cards");
-      await loadCards(id);
-    }
-  }
-
-  function goBack() {
-    setNewName("");
-    setCreateCardsOpen(false);
-    setCreateMode("");
-    setErrorsPaste("");
-    setPdfInfo("");
-
-    if (level === "cards") {
-      setDeckId("");
-      setTree((p) => ({ ...p, cards: [] }));
-      setLevel("decks");
-      return;
-    }
-
-    if (level === "decks") {
-      if (isLegacySubjects) {
-        setLevel("subjects");
-      } else {
-        setTopicId("");
-        setTree((p) => ({ ...p, decks: [], cards: [] }));
-        setLevel("topics");
-      }
-      setDeckId("");
-      setTree((p) => ({ ...p, cards: [] }));
-      return;
-    }
-
-    if (level === "topics") {
-      setSubjectId("");
-      setTopicId("");
-      setTree((p) => ({ ...p, topics: [], decks: [], cards: [] }));
-      setLevel("subjects");
-      return;
-    }
-
-    if (level === "subjects") {
-      setDisciplineId("");
-      setSubjectId("");
-      setTopicId("");
-      setDeckId("");
-      setIsLegacySubjects(false);
-      setTree((p) => ({ ...p, subjects: [], topics: [], decks: [], cards: [] }));
-      setLevel("disciplines");
-      return;
-    }
-
-    if (level === "disciplines") {
-      setCourseId("");
-      setDisciplineId("");
-      setSubjectId("");
-      setTopicId("");
-      setDeckId("");
-      setIsLegacySubjects(false);
-      setTree((p) => ({ ...p, disciplines: [], subjects: [], topics: [], decks: [], cards: [] }));
-      setLevel("courses");
-      return;
-    }
-  }
-
-  const currentList = useMemo(() => {
-    if (level === "courses") return tree.courses;
-    if (level === "disciplines") return tree.disciplines;
-    if (level === "subjects") return tree.subjects;
-    if (level === "topics") return tree.topics;
-    if (level === "decks") return tree.decks;
-    return [];
-  }, [level, tree]);
-
-  function nextLevelForCurrent() {
-    if (level === "courses") return "disciplines";
-    if (level === "disciplines") return "subjects";
-    if (level === "subjects") return isLegacySubjects ? "decks" : "topics";
-    if (level === "topics") return "decks";
-    if (level === "decks") return "cards";
-    return null;
-  }
-
-  async function createHere() {
-    const name = newName.trim();
-    if (!name) return;
-
-    try {
-      if (level === "courses") {
-        await callWrite("create_course", { nome: name });
-        setNewName("");
-        await loadCourses();
-        return;
-      }
-
-      if (level === "disciplines") {
-        if (!courseId) return alert("Selecione um curso.");
-        await callWrite("create_discipline", { nome: name, course_id: courseId });
-        setNewName("");
-        await loadDisciplines(courseId);
-        return;
-      }
-
-      if (level === "subjects") {
-        if (!disciplineId) return alert("Selecione uma disciplina.");
-
-        if (isLegacySubjects) {
-          await callWrite("create_topic_legacy", { nome: name, discipline_id: disciplineId });
-          setNewName("");
-          await loadSubjects(disciplineId);
-          return;
-        }
-
-        await callWrite("create_subject", { nome: name, discipline_id: disciplineId });
-        setNewName("");
-        await loadSubjects(disciplineId);
-        return;
-      }
-
-      if (level === "topics") {
-        if (!subjectId) return alert("Selecione um assunto.");
-        await callWrite("create_topic", { nome: name, subject_id: subjectId });
-        setNewName("");
-        await loadTopics(subjectId);
-        return;
-      }
-
-      if (level === "decks") {
-        if (isLegacySubjects) {
-          if (!subjectId) return alert("Selecione um assunto.");
-          await callWrite("create_deck", { nome: name, topic_id: subjectId });
-          setNewName("");
-          await loadDecks(subjectId);
-          return;
-        }
-
-        if (!topicId) return alert("Selecione um tópico.");
-        await callWrite("create_deck", {
-          nome: name,
-          topic_id: topicId,
-          subject_id: subjectId || null,
-        });
-        setNewName("");
-        await loadDecks(topicId);
-      }
-    } catch (e) {
-      alert(e.message);
-    }
-  }
-
-  async function deleteHere(id, nome) {
-    if (!window.confirm(`Apagar "${nome}"? Isso também apagará os itens abaixo.`)) return;
-
-    const actionMap = {
-      courses: "delete_course",
-      disciplines: "delete_discipline",
-      subjects: isLegacySubjects ? "delete_topic_legacy" : "delete_subject",
-      topics: "delete_topic",
-      decks: "delete_deck",
-    };
-
-    const action = actionMap[level];
-    if (!action) return;
-
-    try {
-      await callWrite(action, { id });
-
-      if (level === "courses") await loadCourses();
-      if (level === "disciplines") await loadDisciplines(courseId);
-      if (level === "subjects") await loadSubjects(disciplineId);
-      if (level === "topics") await loadTopics(subjectId);
-
-      if (level === "decks") {
-        const base = isLegacySubjects ? subjectId : topicId;
-        await loadDecks(base);
-      }
-    } catch (e) {
-      alert(e.message);
-    }
-  }
-
-  async function deleteCard(card) {
-    if (!window.confirm(`Apagar o card "${card.pergunta}"?`)) return;
-
-    try {
-      const { error } = await supabase.from("flash_cards").delete().eq("id", card.id).eq("user_id", userId);
-      if (error) throw error;
-
-      setReviewResults((prev) => {
-        if (!prev?.[deckId]?.[card.id]) return prev;
-        const nextDeckResults = { ...(prev[deckId] || {}) };
-        delete nextDeckResults[card.id];
-        return { ...prev, [deckId]: nextDeckResults };
-      });
-
-      setFlippedCards((prev) => {
-        if (!prev?.[card.id]) return prev;
-        const next = { ...prev };
-        delete next[card.id];
-        return next;
-      });
-
-      await loadCards(deckId);
-    } catch (e) {
-      alert(e.message || "Não foi possível apagar o card.");
-    }
-  }
-
-  async function createCard() {
-    if (!deckId) return alert("Entre em um deck.");
-    const pergunta = cardForm.pergunta.trim();
-    const resposta = cardForm.resposta.trim();
-    if (!pergunta || !resposta) return alert("Preencha pergunta e resposta.");
-
-    try {
-      await callWrite("create_card", {
-        deck_id: deckId,
-        tipo: "normal",
-        pergunta,
-        resposta,
-        tags: safeTags(cardForm.tags),
-      });
-
-      setCardForm({ pergunta: "", resposta: "", tags: "" });
-      await loadCards(deckId);
-    } catch (e) {
-      alert(e.message);
-    }
-  }
-
-  async function generateWithAI() {
-    if (!deckId) return alert("Entre em um deck antes de gerar por IA.");
-    if (!aiForm.text.trim()) return alert("Cole um texto base para a IA.");
-
-    setAiLoading(true);
-    try {
-      const token = await getTokenOrThrow();
-      const { data, error } = await supabase.functions.invoke("generate-flashcards", {
-        body: {
-          deck_id: deckId,
-          text: aiForm.text,
-          qtd: Number(aiForm.qtd || 12),
-          aggressiveness: aiForm.aggressiveness,
-          save: true,
-        },
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (error || !data?.ok) {
-        let msg = error?.message || data?.error || "Erro ao gerar cards.";
+    const [pdfLoading, setPdfLoading] = useState(false);
+    const [pdfInfo, setPdfInfo] = useState("");
+    const [flippedCards, setFlippedCards] = useState({});
+    const [reviewResults, setReviewResults] = useState(() => {
         try {
-          const details = await error?.context?.json?.();
-          msg = details?.error || details?.message || msg;
+            return JSON.parse(localStorage.getItem("flash_review_results") || "{}");
         } catch {
-          // noop
+            return {};
         }
-        throw new Error(msg);
-      }
+    });
+    const [errorDeckLoading, setErrorDeckLoading] = useState(false);
 
-      const saved = Number(data?.saved || 0);
-      const generated = Array.isArray(data?.cards) ? data.cards.length : 0;
-      await loadCards(deckId);
+    const selectedDeck = useMemo(() => tree.decks.find((d) => d.id === deckId), [tree.decks, deckId]);
 
-      if (!saved) {
-        alert(`A IA não gerou cards válidos (retorno: ${generated} cards). Tente aumentar o texto base.`);
-        return 0;
-      }
+    useEffect(() => {
+        localStorage.setItem("flash_review_results", JSON.stringify(reviewResults));
+    }, [reviewResults]);
 
-      alert(`✅ ${saved} cards criados com sucesso!`);
-      return saved;
-    } catch (e) {
-      alert(e.message);
-      return 0;
-    } finally {
-      setAiLoading(false);
+    const breadcrumb = useMemo(() => {
+        const parts = [{ key: "courses", label: "Cursos" }];
+
+        if (courseId) parts.push({ key: "disciplines", label: "Disciplinas" });
+        if (disciplineId) parts.push({ key: "subjects", label: "Assuntos" });
+
+        if (!isLegacySubjects && subjectId) parts.push({ key: "topics", label: "Tópicos" });
+
+        const decksReady = isLegacySubjects ? Boolean(subjectId) : Boolean(topicId);
+        if (decksReady) parts.push({ key: "decks", label: "Decks" });
+
+        if (deckId) parts.push({ key: "cards", label: "Cards" });
+
+        return parts;
+    }, [courseId, disciplineId, subjectId, topicId, deckId, isLegacySubjects]);
+
+    async function getTokenOrThrow() {
+        const { data: auth } = await supabase.auth.getSession();
+        const token = auth?.session?.access_token;
+        if (!token) throw new Error("Sessão expirada. Faça login novamente.");
+        return token;
     }
-  }
 
-  async function createCardsFromListPaste() {
-    if (!deckId) return alert("Entre em um deck.");
-    const pairs = parsePairs(errorsPaste);
-    if (!pairs.length) {
-      return alert('Cole no formato "Pergunta | Resposta" (um por linha).');
-    }
+    async function callWrite(action, payload) {
+        const token = await getTokenOrThrow();
 
-    setBulkLoading(true);
-    try {
-      let saved = 0;
-      for (const p of pairs) {
-        await callWrite("create_card", {
-          deck_id: deckId,
-          tipo: "normal",
-          pergunta: p.pergunta,
-          resposta: p.resposta,
-          tags: [],
+        const { data, error } = await supabase.functions.invoke("flashcards-write", {
+            body: { action, ...payload },
+            headers: { Authorization: `Bearer ${token}` },
         });
-        saved += 1;
-      }
 
-      alert(`✅ ${saved} cards criados com sucesso!`);
-      return saved;
-    } catch (e) {
-      alert(e.message);
-      return 0;
-    } finally {
-      setBulkLoading(false);
+        if (error) {
+            let msg = error?.message || "Falha na Edge Function";
+            try {
+                const details = await error?.context?.json?.();
+                msg = details?.error || details?.message || msg;
+            } catch {
+                // noop
+            }
+            throw new Error(msg);
+        }
+
+        if (!data?.ok) {
+            throw new Error(data?.error || "Falha ao salvar.");
+        }
+
+        return data?.data?.id;
     }
-  }
 
-  function toggleCard(cardId) {
-    setFlippedCards((p) => ({ ...p, [cardId]: !p[cardId] }));
-  }
+    async function selectList({ table, selectModern, selectLegacy, filter = {} }) {
+        let q1 = supabase.from(table).select(selectModern).eq("user_id", userId);
+        Object.entries(filter).forEach(([k, v]) => (q1 = q1.eq(k, v)));
+        const modern = await q1.order("created_at", { ascending: false });
+        if (!modern.error) return (modern.data || []).map(normalizeNameRow);
 
-  function registerResult(cardId, result) {
-    if (!deckId) return;
-    setReviewResults((prev) => ({
-      ...prev,
-      [deckId]: {
-        ...(prev[deckId] || {}),
-        [cardId]: result,
-      },
-    }));
-  }
-
-  async function createErrorsDeckFromReview() {
-    if (!deckId) return;
-
-    const errors = tree.cards.filter((card) => reviewResults?.[deckId]?.[card.id] === "erro");
-    if (!errors.length) return alert("Marque alguns cards como erro para gerar um deck.");
-
-    const suggested = `${selectedDeck?.nome || "Deck"} - Erros`;
-    const name = window.prompt("Nome do novo deck de erros:", suggested)?.trim();
-    if (!name) return;
-
-    setErrorDeckLoading(true);
-    try {
-      const payload = isLegacySubjects
-        ? { nome: name, topic_id: subjectId }
-        : { nome: name, topic_id: topicId, subject_id: subjectId || null };
-
-      const newDeckId = await callWrite("create_deck", payload);
-      for (const card of errors) {
-        await callWrite("create_card", {
-          deck_id: newDeckId,
-          tipo: "normal",
-          pergunta: card.pergunta,
-          resposta: card.resposta,
-          tags: Array.from(new Set([...(card.tags || []), "erro"])),
-        });
-      }
-
-
-    const errors = tree.cards.filter((card) => reviewResults?.[deckId]?.[card.id] === "erro");
-    if (!errors.length) return alert("Marque alguns cards como erro para gerar um deck.");
-
-    const suggested = `${selectedDeck?.nome || "Deck"} - Erros`;
-    const name = window.prompt("Nome do novo deck de erros:", suggested)?.trim();
-    if (!name) return;
-
-    setErrorDeckLoading(true);
-    try {
-      const payload = isLegacySubjects
-        ? { nome: name, topic_id: subjectId }
-        : { nome: name, topic_id: topicId, subject_id: subjectId || null };
-
-      const newDeckId = await callWrite("create_deck", payload);
-      for (const card of errors) {
-        await callWrite("create_card", {
-          deck_id: newDeckId,
-          tipo: "normal",
-          pergunta: card.pergunta,
-          resposta: card.resposta,
-          tags: Array.from(new Set([...(card.tags || []), "erro"])),
-        });
-      }
-
-      const base = isLegacySubjects ? subjectId : topicId;
-      await loadDecks(base);
-      setErrorsPaste("");
-      alert(`✅ Deck "${name}" criado com ${errors.length} card(s) de erro.`);
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setErrorDeckLoading(false);
+        let q2 = supabase.from(table).select(selectLegacy).eq("user_id", userId);
+        Object.entries(filter).forEach(([k, v]) => (q2 = q2.eq(k, v)));
+        const legacy = await q2.order("created_at", { ascending: false });
+        if (legacy.error) throw modern.error;
+        return (legacy.data || []).map(normalizeNameRow);
     }
-  }
 
-  async function handlePdfUpload(file) {
-    if (!file) return;
-    if (file.type !== "application/pdf") return alert("Envie um arquivo PDF.");
+    const loadCourses = useCallback(async () => {
+        setLoading(true);
+        try {
+            const rows = await selectList({
+                table: "flash_courses",
+                selectModern: "id,nome,created_at",
+                selectLegacy: "id,name,created_at",
+            });
+            setTree((p) => ({ ...p, courses: rows }));
+        } finally {
+            setLoading(false);
+        }
+    }, [userId]);
 
-    setPdfLoading(true);
-    setPdfInfo(`Lendo PDF: ${file.name}...`);
+    const loadDisciplines = useCallback(
+        async (course_id) => {
+            setLoading(true);
+            try {
+                const rows = await selectList({
+                    table: "flash_disciplines",
+                    selectModern: "id,nome,course_id,created_at",
+                    selectLegacy: "id,name,course_id,created_at",
+                    filter: { course_id },
+                });
+                setTree((p) => ({ ...p, disciplines: rows }));
+            } finally {
+                setLoading(false);
+            }
+        },
+        [userId]
+    );
 
-    try {
-      const ab = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+    const loadSubjects = useCallback(
+        async (discipline_id) => {
+            setLoading(true);
+            try {
+                const res = await supabase
+                    .from("flash_subjects")
+                    .select("id,nome,discipline_id,created_at")
+                    .eq("user_id", userId)
+                    .eq("discipline_id", discipline_id)
+                    .order("created_at", { ascending: false });
 
-      let text = "";
-      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
-        const page = await pdf.getPage(pageNum);
-        const content = await page.getTextContent();
-        const strings = content.items.map((it) => it.str || "");
-        text += `${strings.join(" ")}\n`;
-      }
+                if (!res.error) {
+                    setIsLegacySubjects(false);
+                    setTree((p) => ({ ...p, subjects: (res.data || []).map(normalizeNameRow) }));
+                    return;
+                }
 
-      const cleaned = text.replace(/\s+/g, " ").trim();
-      const clipped = cleaned.slice(0, 15000);
+                const legacy = await supabase
+                    .from("flash_topics")
+                    .select("id,name,discipline_id,created_at")
+                    .eq("user_id", userId)
+                    .eq("discipline_id", discipline_id)
+                    .order("created_at", { ascending: false });
 
-      setAiForm((p) => ({ ...p, text: clipped }));
-      setPdfInfo(`✅ PDF carregado (${pdf.numPages} páginas). Texto extraído e aplicado.`);
-    } catch (e) {
-      alert("Não consegui ler esse PDF. Tente outro arquivo (ou um PDF com texto selecionável).");
-      setPdfInfo("");
-    } finally {
-      setPdfLoading(false);
+                if (legacy.error) throw res.error;
+
+                setIsLegacySubjects(true);
+                setTree((p) => ({
+                    ...p,
+                    subjects: (legacy.data || []).map((r) => ({ ...r, nome: r.name })),
+                }));
+            } finally {
+                setLoading(false);
+            }
+        },
+        [userId]
+    );
+
+    const loadTopics = useCallback(
+        async (subject_id) => {
+            setLoading(true);
+            try {
+                const res = await supabase
+                    .from("flash_topics")
+                    .select("id,name,subject_id,created_at")
+                    .eq("user_id", userId)
+                    .eq("subject_id", subject_id)
+                    .order("created_at", { ascending: false });
+
+                setTree((p) => ({
+                    ...p,
+                    topics: (res.data || []).map((r) => ({ id: r.id, nome: r.name })),
+                }));
+            } finally {
+                setLoading(false);
+            }
+        },
+        [userId]
+    );
+
+    const loadDecks = useCallback(
+        async (baseId) => {
+            setLoading(true);
+            try {
+                const modern = await supabase
+                    .from("flash_decks")
+                    .select("id,nome,name,topic_id,subject_id,created_at")
+                    .eq("user_id", userId)
+                    .or(`topic_id.eq.${baseId},subject_id.eq.${baseId}`)
+                    .order("created_at", { ascending: false });
+
+                if (!modern.error) {
+                    setTree((p) => ({ ...p, decks: (modern.data || []).map(normalizeNameRow) }));
+                    return;
+                }
+
+                const legacy = await supabase
+                    .from("flash_decks")
+                    .select("id,name,topic_id,created_at")
+                    .eq("user_id", userId)
+                    .eq("topic_id", baseId)
+                    .order("created_at", { ascending: false });
+
+                setTree((p) => ({
+                    ...p,
+                    decks: (legacy.data || []).map((r) => ({ ...r, nome: r.name })),
+                }));
+            } finally {
+                setLoading(false);
+            }
+        },
+        [userId]
+    );
+
+    const loadCards = useCallback(
+        async (deck_id) => {
+            setLoading(true);
+            try {
+                const { data } = await supabase
+                    .from("flash_cards")
+                    .select("id,pergunta,resposta,tags,created_at")
+                    .eq("user_id", userId)
+                    .eq("deck_id", deck_id)
+                    .order("created_at", { ascending: false });
+
+                setTree((p) => ({ ...p, cards: data || [] }));
+            } finally {
+                setLoading(false);
+            }
+        },
+        [userId]
+    );
+
+    useEffect(() => {
+        if (!userId) return;
+
+        setTree(initialTree);
+        setLevel("courses");
+        setCourseId("");
+        setDisciplineId("");
+        setSubjectId("");
+        setTopicId("");
+        setDeckId("");
+        setIsLegacySubjects(false);
+        setNewName("");
+        setCreateCardsOpen(false);
+        setCreateMode("");
+        setErrorsPaste("");
+        setPdfInfo("");
+        setPdfLoading(false);
+
+        loadCourses();
+    }, [userId, loadCourses]);
+
+    function clearBelow(nextLevel) {
+        if (nextLevel === "courses") {
+            setCourseId("");
+            setDisciplineId("");
+            setSubjectId("");
+            setTopicId("");
+            setDeckId("");
+            setIsLegacySubjects(false);
+            setTree((p) => ({ ...p, disciplines: [], subjects: [], topics: [], decks: [], cards: [] }));
+            return;
+        }
+
+        if (nextLevel === "disciplines") {
+            setDisciplineId("");
+            setSubjectId("");
+            setTopicId("");
+            setDeckId("");
+            setIsLegacySubjects(false);
+            setTree((p) => ({ ...p, subjects: [], topics: [], decks: [], cards: [] }));
+            return;
+        }
+
+        if (nextLevel === "subjects") {
+            setSubjectId("");
+            setTopicId("");
+            setDeckId("");
+            setTree((p) => ({ ...p, topics: [], decks: [], cards: [] }));
+            return;
+        }
+
+        if (nextLevel === "topics") {
+            setTopicId("");
+            setDeckId("");
+            setTree((p) => ({ ...p, decks: [], cards: [] }));
+            return;
+        }
+
+        if (nextLevel === "decks") {
+            setDeckId("");
+            setTree((p) => ({ ...p, cards: [] }));
+            return;
+        }
+
+        if (nextLevel === "cards") {
+            setTree((p) => ({ ...p, cards: [] }));
+        }
     }
-  }
 
-  const showBack = level !== "courses";
-  const title = LEVEL_LABEL[level];
+    async function enter(nextLevel, id) {
+        setNewName("");
+        setCreateCardsOpen(false);
+        setCreateMode("");
+        setErrorsPaste("");
+        setPdfInfo("");
 
-  const canCreate =
-    editMode &&
-    newName.trim() &&
-    (level === "courses" ||
-      (level === "disciplines" && courseId) ||
-      (level === "subjects" && disciplineId) ||
-      (level === "topics" && subjectId && !isLegacySubjects) ||
-      (level === "decks" && (isLegacySubjects ? subjectId : topicId)));
+        if (nextLevel === "disciplines") {
+            setCourseId(id);
+            clearBelow("disciplines");
+            setLevel("disciplines");
+            await loadDisciplines(id);
+            return;
+        }
 
-  return (
-    <div className={ui.wrap}>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className={ui.headerTitle}>Flashcards</h2>
-          <p className={ui.headerSub}>Cursos → disciplinas → assuntos → tópicos → decks → cards</p>
-        </div>
+        if (nextLevel === "subjects") {
+            setDisciplineId(id);
+            clearBelow("subjects");
+            setLevel("subjects");
+            await loadSubjects(id);
+            return;
+        }
 
-        <button
-          onClick={() => setEditMode((v) => !v)}
-          className={
-            editMode
-              ? "flex items-center gap-2 px-4 py-2 rounded-2xl bg-red-600 hover:bg-red-500 text-white transition font-black text-xs"
-              : ui.btnEdit
-          }
-        >
-          <Pencil size={16} /> {editMode ? "Sair da edição" : "Modo edição"}
-        </button>
-      </div>
+        if (nextLevel === "topics") {
+            setSubjectId(id);
+            clearBelow("topics");
+            setLevel("topics");
+            await loadTopics(id);
+            return;
+        }
 
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 flex-wrap font-bold">
-          {[...breadcrumb].map((b, idx) => (
-            <span key={b.key} className={b.key === level ? "text-slate-900 dark:text-white font-black" : ""}>
-              {idx > 0 ? " / " : ""}
-              {b.label}
-            </span>
-          ))}
-        </div>
+        if (nextLevel === "decks") {
+            if (isLegacySubjects) {
+                setSubjectId(id);
+            } else {
+                setTopicId(id);
+            }
+            clearBelow("decks");
+            setLevel("decks");
+            await loadDecks(id);
+            return;
+        }
 
-        {showBack && (
-          <button onClick={goBack} className={ui.btnBack}>
-            <ChevronLeft size={16} /> Voltar
-          </button>
-        )}
-      </div>
+        if (nextLevel === "cards") {
+            setDeckId(id);
+            clearBelow("cards");
+            setLevel("cards");
+            await loadCards(id);
+        }
+    }
 
-      {editMode && level !== "cards" && (
-        <div className={`${ui.panelSoft} mb-4`}>
-          <label className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
-            Criar em: {title}
-          </label>
+    function goBack() {
+        setNewName("");
+        setCreateCardsOpen(false);
+        setCreateMode("");
+        setErrorsPaste("");
+        setPdfInfo("");
 
-          <div className="flex gap-2 mt-3">
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder={`Novo ${title.slice(0, -1)}...`}
-              className={ui.input.replace("mt-2 ", "")}
-            />
+        if (level === "cards") {
+            setDeckId("");
+            setTree((p) => ({ ...p, cards: [] }));
+            setLevel("decks");
+            return;
+        }
 
-            <button onClick={createHere} disabled={!canCreate} className={ui.btnGhost} title="Adicionar">
-              <Plus size={16} />
-            </button>
-          </div>
-        </div>
-      )}
+        if (level === "decks") {
+            if (isLegacySubjects) {
+                setLevel("subjects");
+            } else {
+                setTopicId("");
+                setTree((p) => ({ ...p, decks: [], cards: [] }));
+                setLevel("topics");
+            }
+            setDeckId("");
+            setTree((p) => ({ ...p, cards: [] }));
+            return;
+        }
 
-      <div className={ui.panel}>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-xl font-black text-slate-900 dark:text-white">{title}</h3>
-          {loading && (
-            <span className="text-sm text-slate-500 dark:text-slate-400 font-bold animate-pulse">Carregando...</span>
-          )}
-        </div>
+        if (level === "topics") {
+            setSubjectId("");
+            setTopicId("");
+            setTree((p) => ({ ...p, topics: [], decks: [], cards: [] }));
+            setLevel("subjects");
+            return;
+        }
 
-        {level !== "cards" ? (
-          !currentList.length ? (
-            <div className="p-8 rounded-[32px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-center">
-              <p className="font-black text-slate-700 dark:text-slate-200">Nada por aqui ainda.</p>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">Use o modo edição para criar itens.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {currentList.map((item) => {
-                const next = nextLevelForCurrent();
+        if (level === "subjects") {
+            setDisciplineId("");
+            setSubjectId("");
+            setTopicId("");
+            setDeckId("");
+            setIsLegacySubjects(false);
+            setTree((p) => ({ ...p, subjects: [], topics: [], decks: [], cards: [] }));
+            setLevel("disciplines");
+            return;
+        }
 
-                return (
-                  <button key={item.id} onClick={() => next && enter(next, item.id)} className={ui.tile}>
-                    <div className="flex items-center gap-3 text-left">
-                      <div>
-                        <p className={ui.tileTitle}>{item.nome}</p>
-                        <p className={ui.tileMeta}>Clique para abrir</p>
-                      </div>
-                    </div>
+        if (level === "disciplines") {
+            setCourseId("");
+            setDisciplineId("");
+            setSubjectId("");
+            setTopicId("");
+            setDeckId("");
+            setIsLegacySubjects(false);
+            setTree((p) => ({ ...p, disciplines: [], subjects: [], topics: [], decks: [], cards: [] }));
+            setLevel("courses");
+            return;
+        }
+    }
 
-                    <div className="flex items-center gap-3">
-                      {editMode && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteHere(item.id, item.nome);
-                          }}
-                          className={ui.btnGhost}
-                          title="Apagar"
-                        >
-                          <Trash2 size={16} className="text-slate-600 dark:text-slate-200" />
-                        </button>
-                      )}
+    const currentList = useMemo(() => {
+        if (level === "courses") return tree.courses;
+        if (level === "disciplines") return tree.disciplines;
+        if (level === "subjects") return tree.subjects;
+        if (level === "topics") return tree.topics;
+        if (level === "decks") return tree.decks;
+        return [];
+    }, [level, tree]);
 
-                      <span className={ui.iconMuted}>›</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )
-        ) : (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div className="text-sm text-slate-500 dark:text-slate-400 font-bold">
-                Deck: <span className="text-slate-900 dark:text-white font-black">{selectedDeck?.nome || "-"}</span>
-              </div>
+    function nextLevelForCurrent() {
+        if (level === "courses") return "disciplines";
+        if (level === "disciplines") return "subjects";
+        if (level === "subjects") return isLegacySubjects ? "decks" : "topics";
+        if (level === "topics") return "decks";
+        if (level === "decks") return "cards";
+        return null;
+    }
 
-              <div className="flex items-center gap-2">
-                <button onClick={createErrorsDeckFromReview} disabled={errorDeckLoading} className={ui.btnGhost}>
-                  {errorDeckLoading ? "Gerando deck..." : "Gerar deck com erros"}
-                </button>
+    async function createHere() {
+        const name = newName.trim();
+        if (!name) return;
 
-                {editMode && (
-                  <button
-                    onClick={() => {
-                      setCreateCardsOpen(true);
-                      setCreateMode("");
-                      setPdfInfo("");
-                    }}
-                    className={ui.btnDark}
-                  >
-                    Criar cards
-                  </button>
-                )}
-              </div>
-            </div>
+        try {
+            if (level === "courses") {
+                await callWrite("create_course", { nome: name });
+                setNewName("");
+                await loadCourses();
+                return;
+            }
 
-            <div className={ui.panelSoft}>
-              <h4 className="text-base font-black text-slate-900 dark:text-white mb-3">Cards deste deck</h4>
+            if (level === "disciplines") {
+                if (!courseId) return alert("Selecione um curso.");
+                await callWrite("create_discipline", { nome: name, course_id: courseId });
+                setNewName("");
+                await loadDisciplines(courseId);
+                return;
+            }
 
-              {!tree.cards.length ? (
-                <p className="text-sm text-slate-500 dark:text-slate-400 font-bold">Nenhum card ainda.</p>
-              ) : (
-                <ul className="space-y-3 max-h-[560px] overflow-y-auto pr-1">
-                  {tree.cards.map((card) => {
-                    const isFlipped = Boolean(flippedCards[card.id]);
-                    const cardResult = reviewResults?.[deckId]?.[card.id];
+            if (level === "subjects") {
+                if (!disciplineId) return alert("Selecione uma disciplina.");
 
-                    return (
-                      <li key={card.id} className="space-y-2 relative">
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => toggleCard(card.id)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              toggleCard(card.id);
-                            }
-                          }}
-                          className="w-full text-left [perspective:1000px] cursor-pointer"
-                      <li key={card.id} className="space-y-2">
-                        <button
-                          type="button"
-                          onClick={() => toggleCard(card.id)}
-                          className="w-full text-left [perspective:1000px]"
-                        >
-                          <div
-                            className={`relative min-h-[150px] w-full rounded-2xl transition-transform duration-500 [transform-style:preserve-3d] ${
-                              isFlipped ? "[transform:rotateY(180deg)]" : ""
-                            }`}
-                          >
-                            <div className="absolute inset-0 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 [backface-visibility:hidden]">
-                              <p className="text-xs uppercase tracking-wider font-black text-slate-500 dark:text-slate-400">
-                                Pergunta
-                              </p>
-                              <p className="font-black text-slate-900 dark:text-white mt-2">{card.pergunta}</p>
-                              <p className="text-xs text-slate-500 dark:text-slate-400 mt-4 font-bold">
-                                Clique para virar o card
-                              </p>
-                            </div>
+                if (isLegacySubjects) {
+                    await callWrite("create_topic_legacy", { nome: name, discipline_id: disciplineId });
+                    setNewName("");
+                    await loadSubjects(disciplineId);
+                    return;
+                }
 
-                            <div className="absolute inset-0 p-4 rounded-2xl border border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-900/30 [transform:rotateY(180deg)] [backface-visibility:hidden]">
-                              <p className="text-xs uppercase tracking-wider font-black text-indigo-500 dark:text-indigo-300">
-                                Resposta
-                              </p>
-                              <p className="font-bold text-slate-800 dark:text-slate-100 mt-2">{card.resposta}</p>
-                            </div>
-                          </div>
-                        </div>
+                await callWrite("create_subject", { nome: name, discipline_id: disciplineId });
+                setNewName("");
+                await loadSubjects(disciplineId);
+                return;
+            }
 
-                        {editMode && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteCard(card);
-                            }}
-                            className="absolute top-3 right-3 p-1.5 rounded-lg bg-white/90 hover:bg-red-100 border border-slate-200 dark:bg-slate-900/90 dark:hover:bg-red-900/40 dark:border-slate-700 z-10"
-                            title="Apagar card"
-                          >
-                            <Trash2 size={14} className="text-red-600 dark:text-red-300" />
-                          </button>
-                        )}
+            if (level === "topics") {
+                if (!subjectId) return alert("Selecione um assunto.");
+                await callWrite("create_topic", { nome: name, subject_id: subjectId });
+                setNewName("");
+                await loadTopics(subjectId);
+                return;
+            }
 
-                        </button>
+            if (level === "decks") {
+                if (isLegacySubjects) {
+                    if (!subjectId) return alert("Selecione um assunto.");
+                    await callWrite("create_deck", { nome: name, topic_id: subjectId });
+                    setNewName("");
+                    await loadDecks(subjectId);
+                    return;
+                }
 
-                        <div className="flex items-center gap-2 justify-end">
-                          {isFlipped && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => registerResult(card.id, "acerto")}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-black transition ${
-                                  cardResult === "acerto"
-                                    ? "bg-emerald-600 text-white"
-                                    : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200"
-                                }`}
-                              >
-                                Acertei
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => registerResult(card.id, "erro")}
-                                className={`px-3 py-1.5 rounded-xl text-xs font-black transition ${
-                                  cardResult === "erro"
-                                    ? "bg-red-600 text-white"
-                                    : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200"
-                                }`}
-                              >
-                                Errei
-                              </button>
-                            </>
-                          )}
+                if (!topicId) return alert("Selecione um tópico.");
+                await callWrite("create_deck", {
+                    nome: name,
+                    topic_id: topicId,
+                    subject_id: subjectId || null,
+                });
+                setNewName("");
+                await loadDecks(topicId);
+            }
+        } catch (e) {
+            alert(e.message);
+        }
+    }
 
-                          {editMode && (
-                            <button
-                              type="button"
-                              onClick={() => deleteCard(card)}
-                              className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700"
-                              title="Apagar card"
-                            >
-                              <Trash2 size={14} className="text-slate-600 dark:text-slate-200" />
-                            </button>
-                          )}
-                        </div>
-                        {isFlipped && (
-                          <div className="flex items-center gap-2 justify-end">
-                            <button
-                              type="button"
-                              onClick={() => registerResult(card.id, "acerto")}
-                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-colors ${
-                                cardResult === "acerto"
-                                  ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                                  : "bg-slate-200 text-slate-800 hover:bg-emerald-100 hover:text-emerald-800 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-emerald-900/50 dark:hover:text-emerald-200"
-                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition ${
-                                cardResult === "acerto"
-                                  ? "bg-emerald-600 text-white"
-                                  : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                              }`}
-                            >
-                              Acertei
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => registerResult(card.id, "erro")}
-                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition-colors ${
-                                cardResult === "erro"
-                                  ? "bg-red-600 text-white hover:bg-red-700"
-                                  : "bg-slate-200 text-slate-800 hover:bg-red-100 hover:text-red-800 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-red-900/50 dark:hover:text-red-200"
-                              className={`px-3 py-1.5 rounded-xl text-xs font-black transition ${
-                                cardResult === "erro" ? "bg-red-600 text-white" : "bg-red-100 text-red-700 hover:bg-red-200"
-                              }`}
-                            >
-                              Errei
-                            </button>
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
+    async function deleteHere(id, nome) {
+        if (!window.confirm(`Apagar "${nome}"? Isso também apagará os itens abaixo.`)) return;
 
-            {createCardsOpen && (
-              <div className={ui.overlay}>
-                <div className={ui.modal}>
-                  <div className="flex items-center justify-between">
-                    <h4 className={ui.modalTitle}>Como você quer criar os cards?</h4>
-                    <button
-                      onClick={() => {
-                        setCreateCardsOpen(false);
-                        setCreateMode("");
-                        setPdfInfo("");
-                      }}
-                      className={ui.btnBack}
-                    >
-                      Fechar
-                    </button>
-                  </div>
+        const actionMap = {
+            courses: "delete_course",
+            disciplines: "delete_discipline",
+            subjects: isLegacySubjects ? "delete_topic_legacy" : "delete_subject",
+            topics: "delete_topic",
+            decks: "delete_deck",
+        };
 
-                  {!createMode && (
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
-                      <button onClick={() => setCreateMode("manual")} className={ui.modalCard}>
-                        <div className="font-black text-slate-900 dark:text-white">Manual</div>
-                        <div className={ui.modalText}>Você escreve pergunta e resposta</div>
-                      </button>
+        const action = actionMap[level];
+        if (!action) return;
 
-                      <button onClick={() => setCreateMode("list")} className={ui.modalCard}>
-                        <div className="font-black text-slate-900 dark:text-white">Lista Pergunta | Resposta</div>
-                        <div className={ui.modalText}>Cole “Pergunta | Resposta” (1 por linha)</div>
-                      </button>
+        try {
+            await callWrite(action, { id });
 
-                      <button onClick={() => setCreateMode("ai")} className={ui.modalCard}>
-                        <div className="font-black text-slate-900 dark:text-white flex items-center gap-2">
-                          <Sparkles size={16} /> IA
-                        </div>
-                        <div className={ui.modalText}>Cole um texto ou use PDF</div>
-                      </button>
-                    </div>
-                  )}
+            if (level === "courses") await loadCourses();
+            if (level === "disciplines") await loadDisciplines(courseId);
+            if (level === "subjects") await loadSubjects(disciplineId);
+            if (level === "topics") await loadTopics(subjectId);
 
-                  {createMode === "manual" && (
-                    <div className="mt-4">
-                      <div className="flex items-center justify-between">
-                        <div className="font-black text-slate-900 dark:text-white">Criar manual</div>
-                        <button
-                          onClick={() => setCreateMode("")}
-                          className="text-sm font-black underline text-slate-600 dark:text-slate-300"
-                        >
-                          Voltar
-                        </button>
-                      </div>
+            if (level === "decks") {
+                const base = isLegacySubjects ? subjectId : topicId;
+                await loadDecks(base);
+            }
+        } catch (e) {
+            alert(e.message);
+        }
+    }
 
-                      <input
-                        className={ui.input}
-                        placeholder="Pergunta"
-                        value={cardForm.pergunta}
-                        onChange={(e) => setCardForm((p) => ({ ...p, pergunta: e.target.value }))}
-                      />
-                      <textarea
-                        className={ui.textarea}
-                        placeholder="Resposta"
-                        value={cardForm.resposta}
-                        onChange={(e) => setCardForm((p) => ({ ...p, resposta: e.target.value }))}
-                      />
-                      <input
-                        className={ui.input}
-                        placeholder="tags (separadas por vírgula)"
-                        value={cardForm.tags}
-                        onChange={(e) => setCardForm((p) => ({ ...p, tags: e.target.value }))}
-                      />
+    async function createCard() {
+        if (!deckId) return alert("Entre em um deck.");
+        const pergunta = cardForm.pergunta.trim();
+        const resposta = cardForm.resposta.trim();
+        if (!pergunta || !resposta) return alert("Preencha pergunta e resposta.");
 
-                      <div className="flex justify-end mt-4">
-                        <button
-                          onClick={async () => {
-                            await createCard();
-                            setCreateCardsOpen(false);
-                            setCreateMode("");
-                            setPdfInfo("");
-                          }}
-                          className={ui.btnPrimary}
-                        >
-                          Salvar card
-                        </button>
-                      </div>
-                    </div>
-                  )}
+        try {
+            await callWrite("create_card", {
+                deck_id: deckId,
+                tipo: "normal",
+                pergunta,
+                resposta,
+                tags: safeTags(cardForm.tags),
+            });
 
-                  {createMode === "list" && (
-                    <div className="mt-4">
-                      <div className="flex items-center justify-between">
-                        <div className="font-black text-slate-900 dark:text-white">Criar por lista (Pergunta | Resposta)</div>
-                        <button
-                          onClick={() => setCreateMode("")}
-                          className="text-sm font-black underline text-slate-600 dark:text-slate-300"
-                        >
-                          Voltar
-                        </button>
-                      </div>
+            setCardForm({ pergunta: "", resposta: "", tags: "" });
+            await loadCards(deckId);
+        } catch (e) {
+            alert(e.message);
+        }
+    }
 
-                      <p className="text-sm text-slate-500 dark:text-slate-400 font-bold mt-3">
-                        Formato: <span className="font-mono">Pergunta | Resposta</span> (um por linha)
-                      </p>
+    async function generateWithAI() {
+        if (!deckId) return alert("Entre em um deck antes de gerar por IA.");
+        if (!aiForm.text.trim()) return alert("Cole um texto base para a IA.");
 
-                      <textarea
-                        className={ui.textarea}
-                        placeholder={`Ex:\nO que é phishing? | É um golpe para roubar dados...\nRansomware faz o quê? | Criptografa arquivos e pede resgate`}
-                        value={errorsPaste}
-                        onChange={(e) => setErrorsPaste(e.target.value)}
-                      />
+        setAiLoading(true);
+        try {
+            const token = await getTokenOrThrow();
+            const { data, error } = await supabase.functions.invoke("generate-flashcards", {
+                body: {
+                    deck_id: deckId,
+                    text: aiForm.text,
+                    qtd: Number(aiForm.qtd || 12),
+                    aggressiveness: aiForm.aggressiveness,
+                    save: true,
+                },
+                headers: { Authorization: `Bearer ${token}` },
+            });
 
-                      <div className="flex justify-end mt-4">
-                        <button
-                          onClick={async () => {
-                            const saved = await createCardsFromListPaste();
-                            if (saved > 0) {
-                              setCreateCardsOpen(false);
-                              setCreateMode("");
-                              setPdfInfo("");
-                            }
-                          }}
-                          disabled={bulkLoading}
-                          className={ui.btnDark}
-                        >
-                          {bulkLoading ? "Criando..." : "Criar cards"}
-                        </button>
-                      </div>
-                    </div>
-                  )}
+            if (error || !data?.ok) {
+                let msg = error?.message || data?.error || "Erro ao gerar cards.";
+                try {
+                    const details = await error?.context?.json?.();
+                    msg = details?.error || details?.message || msg;
+                } catch {
+                    // noop
+                }
+                throw new Error(msg);
+            }
 
-                  {createMode === "ai" && (
-                    <div className="mt-4">
-                      <div className="flex items-center justify-between">
-                        <div className="font-black text-slate-900 dark:text-white">Gerar por IA</div>
-                        <button
-                          onClick={() => setCreateMode("")}
-                          className="text-sm font-black underline text-slate-600 dark:text-slate-300"
-                        >
-                          Voltar
-                        </button>
-                      </div>
+            const saved = Number(data?.saved || 0);
+            const generated = Array.isArray(data?.cards) ? data.cards.length : 0;
+            await loadCards(deckId);
 
-                      <div className="mt-3 flex flex-col gap-2">
-                        <label className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
-                          Opcional: enviar PDF
-                        </label>
+            if (!saved) {
+                alert(`A IA não gerou cards válidos (retorno: ${generated} cards). Tente aumentar o texto base.`);
+                return 0;
+            }
 
-                        <div className="flex items-center gap-2">
-                          <label className={`${ui.btnGhost} cursor-pointer`}>
-                            <input
-                              type="file"
-                              accept="application/pdf"
-                              className="hidden"
-                              onChange={(e) => handlePdfUpload(e.target.files?.[0])}
-                            />
-                            <span className="flex items-center gap-2">
-                              <Upload size={16} /> {pdfLoading ? "Lendo..." : "Selecionar PDF"}
-                            </span>
-                          </label>
+            alert(`✅ ${saved} cards salvos!`);
+            return saved;
+        } catch (e) {
+            alert(e.message);
+            return 0;
+        } finally {
+            setAiLoading(false);
+        }
+    }
 
-                          {pdfInfo ? (
-                            <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">{pdfInfo}</span>
-                          ) : null}
-                        </div>
-                      </div>
+    async function createCardsFromErrorsPaste() {
+        if (!deckId) return alert("Entre em um deck.");
+        const pairs = parsePairs(errorsPaste);
+        if (!pairs.length) {
+            return alert('Cole no formato "Pergunta | Resposta" (um por linha).');
+        }
 
-                      <textarea
-                        className={ui.textarea}
-                        placeholder="Cole aqui o texto base para gerar flashcards (ou carregue um PDF acima)..."
-                        value={aiForm.text}
-                        onChange={(e) => setAiForm((p) => ({ ...p, text: e.target.value }))}
-                      />
+        setBulkLoading(true);
+        try {
+            let saved = 0;
+            for (const p of pairs) {
+                await callWrite("create_card", {
+                    deck_id: deckId,
+                    tipo: "normal",
+                    pergunta: p.pergunta,
+                    resposta: p.resposta,
+                    tags: ["erro"],
+                });
+                saved += 1;
+            }
 
-                      <div className="grid grid-cols-2 gap-3 mt-3">
-                        <input
-                          type="number"
-                          min="3"
-                          max="30"
-                          className={ui.input.replace("mt-2 ", "")}
-                          value={aiForm.qtd}
-                          onChange={(e) => setAiForm((p) => ({ ...p, qtd: e.target.value }))}
-                        />
-                        <select
-                          className={ui.input.replace("mt-2 ", "")}
-                          value={aiForm.aggressiveness}
-                          onChange={(e) => setAiForm((p) => ({ ...p, aggressiveness: e.target.value }))}
-                        >
-                          <option value="prova">Prova</option>
-                          <option value="medio">Médio</option>
-                          <option value="longo">Longo prazo</option>
-                        </select>
-                      </div>
+            alert(`✅ ${saved} cards salvos!`);
+            return saved;
+        } catch (e) {
+            alert(e.message);
+            return 0;
+        } finally {
+            setBulkLoading(false);
+        }
+    }
 
-                      <div className="flex justify-end mt-4">
-                        <button
-                          onClick={async () => {
-                            const saved = await generateWithAI();
-                            if (saved > 0) {
-                              setCreateCardsOpen(false);
-                              setCreateMode("");
-                              setPdfInfo("");
-                            }
-                          }}
-                          disabled={aiLoading}
-                          className={ui.btnEdit}
-                        >
-                          {aiLoading ? "Gerando..." : "Gerar com IA"}
-                        </button>
-                      </div>
+    function toggleCard(cardId) {
+        setFlippedCards((p) => ({ ...p, [cardId]: !p[cardId] }));
+    }
 
-                      <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-3">
-                        Se o PDF for scan/imagem, o texto pode não sair (aí precisa OCR).
-                      </p>
-                    </div>
-                  )}
+    function registerResult(cardId, result) {
+        if (!deckId) return;
+        setReviewResults((prev) => ({
+            ...prev,
+            [deckId]: {
+                ...(prev[deckId] || {}),
+                [cardId]: result,
+            },
+        }));
+    }
+
+    async function createErrorsDeckFromReview() {
+        if (!deckId) return;
+
+        const errors = tree.cards.filter((card) => reviewResults?.[deckId]?.[card.id] === "erro");
+        if (!errors.length) return alert("Marque alguns cards como erro para gerar um deck.");
+
+        const suggested = `${selectedDeck?.nome || "Deck"} - Erros`;
+        const name = window.prompt("Nome do novo deck de erros:", suggested)?.trim();
+        if (!name) return;
+
+        setErrorDeckLoading(true);
+        try {
+            const payload = isLegacySubjects
+                ? { nome: name, topic_id: subjectId }
+                : { nome: name, topic_id: topicId, subject_id: subjectId || null };
+
+            const newDeckId = await callWrite("create_deck", payload);
+            for (const card of errors) {
+                await callWrite("create_card", {
+                    deck_id: newDeckId,
+                    tipo: "normal",
+                    pergunta: card.pergunta,
+                    resposta: card.resposta,
+                    tags: Array.from(new Set([...(card.tags || []), "erro"])),
+                });
+            }
+
+            const base = isLegacySubjects ? subjectId : topicId;
+            await loadDecks(base);
+            setErrorsPaste("");
+            alert(`✅ Deck "${name}" criado com ${errors.length} card(s) de erro.`);
+        } catch (e) {
+            alert(e.message);
+        } finally {
+            setErrorDeckLoading(false);
+        }
+    }
+
+    async function handlePdfUpload(file) {
+        if (!file) return;
+        if (file.type !== "application/pdf") return alert("Envie um arquivo PDF.");
+
+        setPdfLoading(true);
+        setPdfInfo(`Lendo PDF: ${file.name}...`);
+
+        try {
+            const ab = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: ab }).promise;
+
+            let text = "";
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum += 1) {
+                const page = await pdf.getPage(pageNum);
+                const content = await page.getTextContent();
+                const strings = content.items.map((it) => it.str || "");
+                text += `${strings.join(" ")}\n`;
+            }
+
+            const cleaned = text.replace(/\s+/g, " ").trim();
+            const clipped = cleaned.slice(0, 15000);
+
+            setAiForm((p) => ({ ...p, text: clipped }));
+            setPdfInfo(`✅ PDF carregado (${pdf.numPages} páginas). Texto extraído e aplicado.`);
+        } catch (e) {
+            alert("Não consegui ler esse PDF. Tente outro arquivo (ou um PDF com texto selecionável).");
+            setPdfInfo("");
+        } finally {
+            setPdfLoading(false);
+        }
+    }
+
+    const showBack = level !== "courses";
+    const title = LEVEL_LABEL[level];
+
+    const canCreate =
+        editMode &&
+        newName.trim() &&
+        (level === "courses" ||
+            (level === "disciplines" && courseId) ||
+            (level === "subjects" && disciplineId) ||
+            (level === "topics" && subjectId && !isLegacySubjects) ||
+            (level === "decks" && (isLegacySubjects ? subjectId : topicId)));
+
+    return (
+        <div className={ui.wrap}>
+            <div className="flex items-center justify-between mb-6">
+                <div>
+                    <h2 className={ui.headerTitle}>Flashcards</h2>
+                    <p className={ui.headerSub}>Cursos → disciplinas → assuntos → tópicos → decks → cards</p>
                 </div>
-              </div>
+
+                <button
+                    onClick={() => setEditMode((v) => !v)}
+                    className={
+                        editMode
+                            ? "flex items-center gap-2 px-4 py-2 rounded-2xl bg-red-600 hover:bg-red-500 text-white transition font-black text-xs"
+                            : ui.btnEdit
+                    }
+                >
+                    <Pencil size={16} /> {editMode ? "Sair da edição" : "Modo edição"}
+                </button>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 mb-4">
+                <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400 flex-wrap font-bold">
+                    {[...breadcrumb].map((b, idx) => (
+                        <span key={b.key} className={b.key === level ? "text-slate-900 dark:text-white font-black" : ""}>
+                            {idx > 0 ? " / " : ""}
+                            {b.label}
+                        </span>
+                    ))}
+                </div>
+
+                {showBack && (
+                    <button onClick={goBack} className={ui.btnBack}>
+                        <ChevronLeft size={16} /> Voltar
+                    </button>
+                )}
+            </div>
+
+            {editMode && level !== "cards" && (
+                <div className={`${ui.panelSoft} mb-4`}>
+                    <label className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                        Criar em: {title}
+                    </label>
+
+                    <div className="flex gap-2 mt-3">
+                        <input
+                            value={newName}
+                            onChange={(e) => setNewName(e.target.value)}
+                            placeholder={`Novo ${title.slice(0, -1)}...`}
+                            className={ui.input.replace("mt-2 ", "")}
+                        />
+
+                        <button onClick={createHere} disabled={!canCreate} className={ui.btnGhost} title="Adicionar">
+                            <Plus size={16} />
+                        </button>
+                    </div>
+                </div>
             )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+
+            <div className={ui.panel}>
+                <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-xl font-black text-slate-900 dark:text-white">{title}</h3>
+                    {loading && (
+                        <span className="text-sm text-slate-500 dark:text-slate-400 font-bold animate-pulse">Carregando...</span>
+                    )}
+                </div>
+
+                {level !== "cards" ? (
+                    !currentList.length ? (
+                        <div className="p-8 rounded-[32px] border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-center">
+                            <p className="font-black text-slate-700 dark:text-slate-200">Nada por aqui ainda.</p>
+                            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">Use o modo edição para criar itens.</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {currentList.map((item) => {
+                                const next = nextLevelForCurrent();
+
+                                return (
+                                    <button key={item.id} onClick={() => next && enter(next, item.id)} className={ui.tile}>
+                                        <div className="flex items-center gap-3 text-left">
+                                            <div>
+                                                <p className={ui.tileTitle}>{item.nome}</p>
+                                                <p className={ui.tileMeta}>Clique para abrir</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-3">
+                                            {editMode && (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        deleteHere(item.id, item.nome);
+                                                    }}
+                                                    className={ui.btnGhost}
+                                                    title="Apagar"
+                                                >
+                                                    <Trash2 size={16} className="text-slate-600 dark:text-slate-200" />
+                                                </button>
+                                            )}
+
+                                            <span className={ui.iconMuted}>›</span>
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )
+                ) : (
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="text-sm text-slate-500 dark:text-slate-400 font-bold">
+                                Deck: <span className="text-slate-900 dark:text-white font-black">{selectedDeck?.nome || "-"}</span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <button onClick={createErrorsDeckFromReview} disabled={errorDeckLoading} className={ui.btnGhost}>
+                                    {errorDeckLoading ? "Gerando deck..." : "Gerar deck com erros"}
+                                </button>
+
+                                {editMode && (
+                                    <button
+                                        onClick={() => {
+                                            setCreateCardsOpen(true);
+                                            setCreateMode("");
+                                            setPdfInfo("");
+                                        }}
+                                        className={ui.btnDark}
+                                    >
+                                        Criar cards
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className={ui.panelSoft}>
+                            <h4 className="text-base font-black text-slate-900 dark:text-white mb-3">Cards deste deck</h4>
+
+                            {!tree.cards.length ? (
+                                <p className="text-sm text-slate-500 dark:text-slate-400 font-bold">Nenhum card ainda.</p>
+                            ) : (
+                                <ul className="space-y-3 max-h-[560px] overflow-y-auto pr-1">
+                                    {tree.cards.map((card) => {
+                                        const isFlipped = Boolean(flippedCards[card.id]);
+                                        const cardResult = reviewResults?.[deckId]?.[card.id];
+
+                                        return (
+                                            <li key={card.id} className="space-y-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleCard(card.id)}
+                                                    className="w-full text-left [perspective:1000px]"
+                                                >
+                                                    <div
+                                                        className={`relative min-h-[150px] w-full rounded-2xl transition-transform duration-500 [transform-style:preserve-3d] ${isFlipped ? "[transform:rotateY(180deg)]" : ""
+                                                            }`}
+                                                    >
+                                                        <div className="absolute inset-0 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 [backface-visibility:hidden]">
+                                                            <p className="text-xs uppercase tracking-wider font-black text-slate-500 dark:text-slate-400">
+                                                                Pergunta
+                                                            </p>
+                                                            <p className="font-black text-slate-900 dark:text-white mt-2">{card.pergunta}</p>
+                                                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-4 font-bold">
+                                                                Clique para virar o card
+                                                            </p>
+                                                        </div>
+
+                                                        <div className="absolute inset-0 p-4 rounded-2xl border border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-900/30 [transform:rotateY(180deg)] [backface-visibility:hidden]">
+                                                            <p className="text-xs uppercase tracking-wider font-black text-indigo-500 dark:text-indigo-300">
+                                                                Resposta
+                                                            </p>
+                                                            <p className="font-bold text-slate-800 dark:text-slate-100 mt-2">{card.resposta}</p>
+                                                        </div>
+                                                    </div>
+                                                </button>
+
+                                                {isFlipped && (
+                                                    <div className="flex items-center gap-2 justify-end">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => registerResult(card.id, "acerto")}
+                                                            className={`px-3 py-1.5 rounded-xl text-xs font-black transition ${cardResult === "acerto"
+                                                                ? "bg-emerald-600 text-white"
+                                                                : "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
+                                                                }`}
+                                                        >
+                                                            Acertei
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => registerResult(card.id, "erro")}
+                                                            className={`px-3 py-1.5 rounded-xl text-xs font-black transition ${cardResult === "erro" ? "bg-red-600 text-white" : "bg-red-100 text-red-700 hover:bg-red-200"
+                                                                }`}
+                                                        >
+                                                            Errei
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            )}
+                        </div>
+
+                        {createCardsOpen && (
+                            <div className={ui.overlay}>
+                                <div className={ui.modal}>
+                                    <div className="flex items-center justify-between">
+                                        <h4 className={ui.modalTitle}>Como você quer criar os cards?</h4>
+                                        <button
+                                            onClick={() => {
+                                                setCreateCardsOpen(false);
+                                                setCreateMode("");
+                                                setPdfInfo("");
+                                            }}
+                                            className={ui.btnBack}
+                                        >
+                                            Fechar
+                                        </button>
+                                    </div>
+
+                                    {!createMode && (
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+                                            <button onClick={() => setCreateMode("manual")} className={ui.modalCard}>
+                                                <div className="font-black text-slate-900 dark:text-white">Manual</div>
+                                                <div className={ui.modalText}>Você escreve pergunta e resposta</div>
+                                            </button>
+
+                                            <button onClick={() => setCreateMode("errors")} className={ui.modalCard}>
+                                                <div className="font-black text-slate-900 dark:text-white">A partir dos erros</div>
+                                                <div className={ui.modalText}>Cole “Pergunta | Resposta” (1 por linha)</div>
+                                            </button>
+
+                                            <button onClick={() => setCreateMode("ai")} className={ui.modalCard}>
+                                                <div className="font-black text-slate-900 dark:text-white flex items-center gap-2">
+                                                    <Sparkles size={16} /> IA
+                                                </div>
+                                                <div className={ui.modalText}>Cole um texto ou use PDF</div>
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {createMode === "manual" && (
+                                        <div className="mt-4">
+                                            <div className="flex items-center justify-between">
+                                                <div className="font-black text-slate-900 dark:text-white">Criar manual</div>
+                                                <button
+                                                    onClick={() => setCreateMode("")}
+                                                    className="text-sm font-black underline text-slate-600 dark:text-slate-300"
+                                                >
+                                                    Voltar
+                                                </button>
+                                            </div>
+
+                                            <input
+                                                className={ui.input}
+                                                placeholder="Pergunta"
+                                                value={cardForm.pergunta}
+                                                onChange={(e) => setCardForm((p) => ({ ...p, pergunta: e.target.value }))}
+                                            />
+                                            <textarea
+                                                className={ui.textarea}
+                                                placeholder="Resposta"
+                                                value={cardForm.resposta}
+                                                onChange={(e) => setCardForm((p) => ({ ...p, resposta: e.target.value }))}
+                                            />
+                                            <input
+                                                className={ui.input}
+                                                placeholder="tags (separadas por vírgula)"
+                                                value={cardForm.tags}
+                                                onChange={(e) => setCardForm((p) => ({ ...p, tags: e.target.value }))}
+                                            />
+
+                                            <div className="flex justify-end mt-4">
+                                                <button
+                                                    onClick={async () => {
+                                                        await createCard();
+                                                        setCreateCardsOpen(false);
+                                                        setCreateMode("");
+                                                        setPdfInfo("");
+                                                    }}
+                                                    className={ui.btnPrimary}
+                                                >
+                                                    Salvar card
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {createMode === "errors" && (
+                                        <div className="mt-4">
+                                            <div className="flex items-center justify-between">
+                                                <div className="font-black text-slate-900 dark:text-white">Criar a partir dos erros</div>
+                                                <button
+                                                    onClick={() => setCreateMode("")}
+                                                    className="text-sm font-black underline text-slate-600 dark:text-slate-300"
+                                                >
+                                                    Voltar
+                                                </button>
+                                            </div>
+
+                                            <p className="text-sm text-slate-500 dark:text-slate-400 font-bold mt-3">
+                                                Formato: <span className="font-mono">Pergunta | Resposta</span> (um por linha)
+                                            </p>
+
+                                            <textarea
+                                                className={ui.textarea}
+                                                placeholder={`Ex:\nO que é phishing? | É um golpe para roubar dados...\nRansomware faz o quê? | Criptografa arquivos e pede resgate`}
+                                                value={errorsPaste}
+                                                onChange={(e) => setErrorsPaste(e.target.value)}
+                                            />
+
+                                            <div className="flex justify-end mt-4">
+                                                <button
+                                                    onClick={async () => {
+                                                        const saved = await createCardsFromErrorsPaste();
+                                                        if (saved > 0) {
+                                                            setCreateCardsOpen(false);
+                                                            setCreateMode("");
+                                                            setPdfInfo("");
+                                                        }
+                                                    }}
+                                                    disabled={bulkLoading}
+                                                    className={ui.btnDark}
+                                                >
+                                                    {bulkLoading ? "Criando..." : "Criar cards"}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {createMode === "ai" && (
+                                        <div className="mt-4">
+                                            <div className="flex items-center justify-between">
+                                                <div className="font-black text-slate-900 dark:text-white">Gerar por IA</div>
+                                                <button
+                                                    onClick={() => setCreateMode("")}
+                                                    className="text-sm font-black underline text-slate-600 dark:text-slate-300"
+                                                >
+                                                    Voltar
+                                                </button>
+                                            </div>
+
+                                            <div className="mt-3 flex flex-col gap-2">
+                                                <label className="text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                                                    Opcional: enviar PDF
+                                                </label>
+
+                                                <div className="flex items-center gap-2">
+                                                    <label className={`${ui.btnGhost} cursor-pointer`}>
+                                                        <input
+                                                            type="file"
+                                                            accept="application/pdf"
+                                                            className="hidden"
+                                                            onChange={(e) => handlePdfUpload(e.target.files?.[0])}
+                                                        />
+                                                        <span className="flex items-center gap-2">
+                                                            <Upload size={16} /> {pdfLoading ? "Lendo..." : "Selecionar PDF"}
+                                                        </span>
+                                                    </label>
+
+                                                    {pdfInfo ? (
+                                                        <span className="text-xs text-slate-500 dark:text-slate-400 font-bold">{pdfInfo}</span>
+                                                    ) : null}
+                                                </div>
+                                            </div>
+
+                                            <textarea
+                                                className={ui.textarea}
+                                                placeholder="Cole aqui o texto base para gerar flashcards (ou carregue um PDF acima)..."
+                                                value={aiForm.text}
+                                                onChange={(e) => setAiForm((p) => ({ ...p, text: e.target.value }))}
+                                            />
+
+                                            <div className="grid grid-cols-2 gap-3 mt-3">
+                                                <input
+                                                    type="number"
+                                                    min="3"
+                                                    max="30"
+                                                    className={ui.input.replace("mt-2 ", "")}
+                                                    value={aiForm.qtd}
+                                                    onChange={(e) => setAiForm((p) => ({ ...p, qtd: e.target.value }))}
+                                                />
+                                                <select
+                                                    className={ui.input.replace("mt-2 ", "")}
+                                                    value={aiForm.aggressiveness}
+                                                    onChange={(e) => setAiForm((p) => ({ ...p, aggressiveness: e.target.value }))}
+                                                >
+                                                    <option value="prova">Prova</option>
+                                                    <option value="medio">Médio</option>
+                                                    <option value="longo">Longo prazo</option>
+                                                </select>
+                                            </div>
+
+                                            <div className="flex justify-end mt-4">
+                                                <button
+                                                    onClick={async () => {
+                                                        const saved = await generateWithAI();
+                                                        if (saved > 0) {
+                                                            setCreateCardsOpen(false);
+                                                            setCreateMode("");
+                                                            setPdfInfo("");
+                                                        }
+                                                    }}
+                                                    disabled={aiLoading}
+                                                    className={ui.btnEdit}
+                                                >
+                                                    {aiLoading ? "Gerando..." : "Gerar com IA"}
+                                                </button>
+                                            </div>
+
+                                            <p className="text-xs text-slate-500 dark:text-slate-400 font-bold mt-3">
+                                                Se o PDF for scan/imagem, o texto pode não sair (aí precisa OCR).
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 }
