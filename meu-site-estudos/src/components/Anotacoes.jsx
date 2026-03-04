@@ -1,5 +1,17 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { BookPlus, FilePlus2, Trash2 } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  BookPlus,
+  FilePlus2,
+  Trash2,
+  Pencil,
+  Bold,
+  Italic,
+  Underline,
+  Highlighter,
+  Eraser,
+} from "lucide-react";
+
+const textoInicial = `<h1>Bem-vindo(a)!</h1><p>Use este espaço como um Notion pessoal para organizar seus estudos.</p><ul><li>Crie cadernos por matéria</li><li>Separe notas por tema</li><li>Monte checklists com [ ] tarefas</li></ul>`;
 
 const criarCadernoInicial = () => ({
   id: crypto.randomUUID(),
@@ -8,33 +20,98 @@ const criarCadernoInicial = () => ({
     {
       id: crypto.randomUUID(),
       titulo: "Primeira anotação",
-      conteudo:
-        "# Bem-vindo(a)!\n\nUse este espaço como um Notion pessoal para organizar seus estudos.\n\n- Crie cadernos por matéria\n- Separe notas por tema\n- Monte checklists com [ ] tarefas",
+      conteudo: textoInicial,
       atualizadoEm: new Date().toISOString(),
     },
   ],
 });
+
+const htmlSeguro = (conteudo = "") => {
+  const texto = conteudo.trim();
+  if (!texto) return "";
+
+  if (/<\/?[a-z][\s\S]*>/i.test(texto)) return texto;
+
+  return texto
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br>");
+};
+
+const normalizarCadernos = (lista = []) => {
+  if (!Array.isArray(lista)) return [];
+
+  return lista.map((caderno) => ({
+    ...caderno,
+    notas: Array.isArray(caderno?.notas)
+      ? caderno.notas.map((nota) => ({
+          ...nota,
+          conteudo: htmlSeguro(nota?.conteudo || ""),
+        }))
+      : [],
+  }));
+};
 
 function Anotacoes({ user }) {
   const storageKey = `planner-anotacoes-${user.id}`;
   const [cadernos, setCadernos] = useState([]);
   const [cadernoId, setCadernoId] = useState("");
   const [notaId, setNotaId] = useState("");
+  const [tamanhoFonte, setTamanhoFonte] = useState("3");
+  const editorRef = useRef(null);
+  const ultimaNotaSincronizadaRef = useRef("");
+  const selecaoRef = useRef(null);
+
+  const salvarSelecao = () => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    if (!editorRef.current?.contains(range.commonAncestorContainer)) return;
+    selecaoRef.current = range.cloneRange();
+  };
+
+  const restaurarSelecao = () => {
+    if (!selecaoRef.current) return;
+    const selection = window.getSelection();
+    if (!selection) return;
+
+    try {
+      selection.removeAllRanges();
+      selection.addRange(selecaoRef.current);
+    } catch {
+      selecaoRef.current = null;
+    }
+  };
 
   useEffect(() => {
+    const inicial = [criarCadernoInicial()];
+    const salvarInicial = () => {
+      setCadernos(inicial);
+      setCadernoId(inicial[0].id);
+      setNotaId(inicial[0].notas[0].id);
+    };
+
     const salvo = localStorage.getItem(storageKey);
-    if (salvo) {
-      const dados = JSON.parse(salvo);
-      setCadernos(dados);
-      setCadernoId(dados[0]?.id || "");
-      setNotaId(dados[0]?.notas?.[0]?.id || "");
+    if (!salvo) {
+      salvarInicial();
       return;
     }
 
-    const inicial = [criarCadernoInicial()];
-    setCadernos(inicial);
-    setCadernoId(inicial[0].id);
-    setNotaId(inicial[0].notas[0].id);
+    try {
+      const dados = normalizarCadernos(JSON.parse(salvo));
+      if (!dados.length) {
+        salvarInicial();
+        return;
+      }
+
+      setCadernos(dados);
+      setCadernoId(dados[0]?.id || "");
+      setNotaId(dados[0]?.notas?.[0]?.id || "");
+    } catch {
+      localStorage.removeItem(storageKey);
+      salvarInicial();
+    }
   }, [storageKey]);
 
   useEffect(() => {
@@ -63,18 +140,41 @@ function Anotacoes({ user }) {
     setNotaId("");
   };
 
+  const editarCaderno = () => {
+    if (!cadernoAtual) return;
+    const titulo = window.prompt("Novo nome do caderno:", cadernoAtual.titulo)?.trim();
+    if (!titulo) return;
+
+    setCadernos((prev) =>
+      prev.map((c) => (c.id === cadernoAtual.id ? { ...c, titulo } : c))
+    );
+  };
+
+  const excluirCaderno = () => {
+    if (!cadernoAtual) return;
+    const confirmou = window.confirm(
+      `Excluir o caderno \"${cadernoAtual.titulo}\" e todas as notas dele?`
+    );
+    if (!confirmou) return;
+
+    const restantes = cadernos.filter((c) => c.id !== cadernoAtual.id);
+    setCadernos(restantes);
+    setCadernoId(restantes[0]?.id || "");
+    setNotaId(restantes[0]?.notas?.[0]?.id || "");
+  };
+
   const criarNota = () => {
     if (!cadernoAtual) return;
     const nova = {
       id: crypto.randomUUID(),
-      titulo: `Nova nota ${cadernoAtual.notas.length + 1}`,
+      titulo: `Nova nota ${(cadernoAtual.notas || []).length + 1}`,
       conteudo: "",
       atualizadoEm: new Date().toISOString(),
     };
 
     setCadernos((prev) =>
       prev.map((c) =>
-        c.id === cadernoAtual.id ? { ...c, notas: [nova, ...c.notas] } : c
+        c.id === cadernoAtual.id ? { ...c, notas: [nova, ...(c.notas || [])] } : c
       )
     );
     setNotaId(nova.id);
@@ -87,7 +187,7 @@ function Anotacoes({ user }) {
         if (c.id !== cadernoAtual.id) return c;
         return {
           ...c,
-          notas: c.notas.map((n) =>
+          notas: (c.notas || []).map((n) =>
             n.id === notaAtual.id
               ? {
                   ...n,
@@ -104,25 +204,60 @@ function Anotacoes({ user }) {
   const excluirNota = () => {
     if (!cadernoAtual || !notaAtual) return;
 
-    const restantes = cadernoAtual.notas.filter((n) => n.id !== notaAtual);
+    const restantes = (cadernoAtual.notas || []).filter((n) => n.id !== notaAtual.id);
     setCadernos((prev) =>
       prev.map((c) => (c.id === cadernoAtual.id ? { ...c, notas: restantes } : c))
     );
     setNotaId(restantes[0]?.id || "");
   };
 
+  const aplicarComando = (comando, valor = null) => {
+    if (!notaAtual) return;
+    editorRef.current?.focus();
+    restaurarSelecao();
+    document.execCommand(comando, false, valor);
+    salvarSelecao();
+    atualizarNota("conteudo", editorRef.current?.innerHTML || "");
+  };
+
+  useEffect(() => {
+    if (!notaAtual || !editorRef.current) return;
+    if (ultimaNotaSincronizadaRef.current === notaAtual.id) return;
+    editorRef.current.innerHTML = notaAtual.conteudo || "";
+    ultimaNotaSincronizadaRef.current = notaAtual.id;
+    selecaoRef.current = null;
+  }, [notaAtual]);
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[230px_270px_1fr] gap-4 h-[65vh]">
       <aside className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-800/40">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-semibold">Cadernos</h3>
-          <button
-            onClick={criarCaderno}
-            className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
-            title="Novo caderno"
-          >
-            <BookPlus size={18} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={editarCaderno}
+              disabled={!cadernoAtual}
+              className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer disabled:opacity-40"
+              title="Renomear caderno"
+            >
+              <Pencil size={16} />
+            </button>
+            <button
+              onClick={excluirCaderno}
+              disabled={!cadernoAtual}
+              className="p-2 rounded-lg hover:bg-red-100 text-red-500 dark:hover:bg-red-900/20 cursor-pointer disabled:opacity-40"
+              title="Excluir caderno"
+            >
+              <Trash2 size={16} />
+            </button>
+            <button
+              onClick={criarCaderno}
+              className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer"
+              title="Novo caderno"
+            >
+              <BookPlus size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="space-y-2 overflow-y-auto max-h-[56vh] pr-1">
@@ -131,7 +266,7 @@ function Anotacoes({ user }) {
               key={c.id}
               onClick={() => {
                 setCadernoId(c.id);
-                setNotaId(c.notas[0]?.id || "");
+                setNotaId((c.notas || [])[0]?.id || "");
               }}
               className={`w-full text-left px-3 py-2 rounded-lg text-sm cursor-pointer ${
                 cadernoId === c.id
@@ -140,7 +275,7 @@ function Anotacoes({ user }) {
               }`}
             >
               <p className="font-medium truncate">{c.titulo}</p>
-              <p className="text-xs opacity-75">{c.notas.length} nota(s)</p>
+              <p className="text-xs opacity-75">{(c.notas || []).length} nota(s)</p>
             </button>
           ))}
         </div>
@@ -160,7 +295,7 @@ function Anotacoes({ user }) {
         </div>
 
         <div className="space-y-2 overflow-y-auto max-h-[56vh] pr-1">
-          {cadernoAtual?.notas.map((n) => (
+          {cadernoAtual?.notas?.map((n) => (
             <button
               key={n.id}
               onClick={() => setNotaId(n.id)}
@@ -205,14 +340,79 @@ function Anotacoes({ user }) {
               </button>
             </div>
 
-            <textarea
-              value={notaAtual.conteudo}
-              onChange={(e) => atualizarNota("conteudo", e.target.value)}
-              placeholder="Digite sua anotação..."
-              className="flex-1 rounded-xl border px-4 py-3 bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 outline-none focus:border-cyan-500 resize-none leading-relaxed"
+            <div className="flex flex-wrap items-center gap-2 p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80">
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => aplicarComando("bold")}
+                className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+                title="Negrito"
+              >
+                <Bold size={16} />
+              </button>
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => aplicarComando("italic")}
+                className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+                title="Itálico"
+              >
+                <Italic size={16} />
+              </button>
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => aplicarComando("underline")}
+                className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+                title="Sublinhado"
+              >
+                <Underline size={16} />
+              </button>
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => aplicarComando("hiliteColor", "#fde047")}
+                className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+                title="Grifado"
+              >
+                <Highlighter size={16} />
+              </button>
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => aplicarComando("hiliteColor", "transparent")}
+                className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+                title="Desgrifar"
+              >
+                <Eraser size={16} />
+              </button>
+              <select
+                value={tamanhoFonte}
+                onMouseDown={(e) => e.preventDefault()}
+                onChange={(e) => {
+                  setTamanhoFonte(e.target.value);
+                  aplicarComando("fontSize", e.target.value);
+                }}
+                className="ml-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1 text-sm"
+                title="Tamanho da fonte"
+              >
+                <option value="2">Pequena</option>
+                <option value="3">Normal</option>
+                <option value="4">Média</option>
+                <option value="5">Grande</option>
+                <option value="6">Muito grande</option>
+              </select>
+            </div>
+
+            <div
+              ref={editorRef}
+              contentEditable
+              suppressContentEditableWarning
+              onInput={(e) => {
+                salvarSelecao();
+                atualizarNota("conteudo", e.currentTarget.innerHTML);
+              }}
+              onKeyUp={salvarSelecao}
+              onMouseUp={salvarSelecao}
+              className="flex-1 rounded-xl border px-4 py-3 bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 outline-none focus:border-cyan-500 overflow-y-auto leading-relaxed"
             />
             <p className="text-xs text-slate-500">
-              Dica: use títulos, listas e checklists no estilo Notion para organizar cada tema.
+              Dica: use a barra acima para formatar texto e deixar suas anotações mais visuais.
             </p>
           </div>
         )}
