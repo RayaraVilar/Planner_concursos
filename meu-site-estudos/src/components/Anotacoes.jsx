@@ -49,7 +49,7 @@ function Anotacoes({ user }) {
   useEffect(() => {
     const salvo = localStorage.getItem(storageKey);
     if (salvo) {
-      const dados = JSON.parse(salvo);
+      const dados = normalizarCadernos(JSON.parse(salvo));
       setCadernos(dados);
       setCadernoId(dados[0]?.id || "");
       setNotaId(dados[0]?.notas?.[0]?.id || "");
