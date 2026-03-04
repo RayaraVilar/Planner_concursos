@@ -100,12 +100,13 @@ function Dashboard({ user }) {
                             VISÃO GERAL
                         </p>
                     )}
+                    <MenuLink id="inicio" icon={LayoutDashboard} label="Workspace" />
                     <MenuLink
                         id="dashboard-geral"
                         icon={BarChart3}
                         label="Dashboard Geral"
                     />
-                    <MenuLink id="inicio" icon={LayoutDashboard} label="Workspace" />
+
                     <MenuLink id="constancia" icon={Flame} label="Constância" />
 
                     {/* ✅ PLANEJAMENTO */}

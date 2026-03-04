@@ -195,11 +195,10 @@ const Historico = ({ user }) => {
                             <button
                                 key={valor}
                                 onClick={() => setPeriodo(valor)}
-                                className={`px-3 py-2 rounded-xl text-sm font-bold border cursor-pointer ${
-                                    periodo === valor
+                                className={`px-3 py-2 rounded-xl text-sm font-bold border cursor-pointer ${periodo === valor
                                         ? "bg-cyan-600 text-white border-cyan-500"
                                         : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700"
-                                }`}
+                                    }`}
                             >
                                 {label}
                             </button>
