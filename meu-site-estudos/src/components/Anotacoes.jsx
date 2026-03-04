@@ -2,12 +2,13 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   BookPlus,
   FilePlus2,
-  Trash2,
   Pencil,
   Bold,
   Italic,
   Underline,
   Highlighter,
+  Heading1,
+  List,
 } from "lucide-react";
 
 const textoInicial = `<h1>Bem-vindo(a)!</h1><p>Use este espaço como um Notion pessoal para organizar seus estudos.</p><ul><li>Crie cadernos por matéria</li><li>Separe notas por tema</li><li>Monte checklists com [ ] tarefas</li></ul>`;
@@ -38,6 +39,44 @@ const htmlSeguro = (conteudo = "") => {
     .replace(/\n/g, "<br>");
 };
 
+const COR_GRIFO = "#facc15";
+const COR_TEXTO_GRIFO = "#111827";
+
+const encontrarElemento = (node) => {
+  if (!node) return null;
+  return node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+};
+
+const removerGrifoDoSpan = (span) => {
+  const pai = span.parentNode;
+  if (!pai) return;
+
+  while (span.firstChild) {
+    pai.insertBefore(span.firstChild, span);
+  }
+  pai.removeChild(span);
+};
+
+const normalizarCadernos = (dados) => {
+  if (!Array.isArray(dados) || !dados.length) return [criarCadernoInicial()];
+
+  const cadernosNormalizados = dados.map((caderno, index) => {
+    const notasOriginais = Array.isArray(caderno?.notas) ? caderno.notas : [];
+    return {
+      id: caderno?.id || crypto.randomUUID(),
+      titulo: caderno?.titulo?.trim() || `Caderno ${index + 1}`,
+      notas: notasOriginais.map((nota, notaIndex) => ({
+        id: nota?.id || crypto.randomUUID(),
+        titulo: nota?.titulo?.trim() || `Nota ${notaIndex + 1}`,
+        conteudo: nota?.conteudo || "",
+        atualizadoEm: nota?.atualizadoEm || new Date().toISOString(),
+      })),
+    };
+  });
+
+  return cadernosNormalizados.length ? cadernosNormalizados : [criarCadernoInicial()];
+};
+
 function Anotacoes({ user }) {
   const storageKey = `planner-anotacoes-${user.id}`;
   const [cadernos, setCadernos] = useState([]);
@@ -54,8 +93,13 @@ function Anotacoes({ user }) {
       setNotaId(inicial[0].notas[0].id);
     };
 
-    const salvo = localStorage.getItem(storageKey);
-    if (salvo) {
+    try {
+      const salvo = localStorage.getItem(storageKey);
+      if (!salvo) {
+        salvarInicial();
+        return;
+      }
+
       const dados = normalizarCadernos(JSON.parse(salvo));
       setCadernos(dados);
       setCadernoId(dados[0]?.id || "");
@@ -82,9 +126,12 @@ function Anotacoes({ user }) {
   );
 
   const criarCaderno = () => {
+    const titulo = window.prompt("Nome do novo caderno:")?.trim();
+    if (!titulo) return;
+
     const novo = {
       id: crypto.randomUUID(),
-      titulo: `Novo caderno ${cadernos.length + 1}`,
+      titulo,
       notas: [],
     };
     setCadernos((prev) => [...prev, novo]);
@@ -92,8 +139,34 @@ function Anotacoes({ user }) {
     setNotaId("");
   };
 
-  const editarCaderno = () => {
+  const gerenciarCaderno = () => {
     if (!cadernoAtual) return;
+
+    const acao = window
+      .prompt(
+        `Editar caderno "${cadernoAtual.titulo}"\nDigite: renomear ou apagar`,
+        "renomear"
+      )
+      ?.trim()
+      .toLowerCase();
+
+    if (!acao) return;
+
+    if (acao === "apagar") {
+      const confirmou = window.confirm(
+        `Excluir o caderno "${cadernoAtual.titulo}" e todas as notas dele?`
+      );
+      if (!confirmou) return;
+
+      const restantes = cadernos.filter((c) => c.id !== cadernoAtual.id);
+      setCadernos(restantes);
+      setCadernoId(restantes[0]?.id || "");
+      setNotaId(restantes[0]?.notas?.[0]?.id || "");
+      return;
+    }
+
+    if (acao !== "renomear") return;
+
     const titulo = window.prompt("Novo nome do caderno:", cadernoAtual.titulo)?.trim();
     if (!titulo) return;
 
@@ -102,24 +175,14 @@ function Anotacoes({ user }) {
     );
   };
 
-  const excluirCaderno = () => {
-    if (!cadernoAtual) return;
-    const confirmou = window.confirm(
-      `Excluir o caderno \"${cadernoAtual.titulo}\" e todas as notas dele?`
-    );
-    if (!confirmou) return;
-
-    const restantes = cadernos.filter((c) => c.id !== cadernoAtual.id);
-    setCadernos(restantes);
-    setCadernoId(restantes[0]?.id || "");
-    setNotaId(restantes[0]?.notas?.[0]?.id || "");
-  };
-
   const criarNota = () => {
     if (!cadernoAtual) return;
+    const titulo = window.prompt("Nome da nova nota:")?.trim();
+    if (!titulo) return;
+
     const nova = {
       id: crypto.randomUUID(),
-      titulo: `Nova nota ${(cadernoAtual.notas || []).length + 1}`,
+      titulo,
       conteudo: "",
       atualizadoEm: new Date().toISOString(),
     };
@@ -153,8 +216,28 @@ function Anotacoes({ user }) {
     );
   };
 
-  const excluirNota = () => {
+  const gerenciarNota = () => {
     if (!cadernoAtual || !notaAtual) return;
+
+    const acao = window
+      .prompt(`Editar nota "${notaAtual.titulo}"\nDigite: renomear ou apagar`, "renomear")
+      ?.trim()
+      .toLowerCase();
+
+    if (!acao) return;
+
+    if (acao === "renomear") {
+      const titulo = window.prompt("Novo nome da nota:", notaAtual.titulo)?.trim();
+      if (!titulo) return;
+
+      atualizarNota("titulo", titulo);
+      return;
+    }
+
+    if (acao !== "apagar") return;
+
+    const confirmou = window.confirm(`Excluir a nota "${notaAtual.titulo}"?`);
+    if (!confirmou) return;
 
     const restantes = cadernoAtual.notas.filter((n) => n.id !== notaAtual.id);
     setCadernos((prev) =>
@@ -170,6 +253,59 @@ function Anotacoes({ user }) {
     atualizarNota("conteudo", editorRef.current?.innerHTML || "");
   };
 
+  const aplicarTitulo = () => {
+    const selecao = window.getSelection();
+    if (!selecao || selecao.rangeCount === 0 || selecao.isCollapsed) return;
+
+    const textoSelecionado = selecao.toString();
+    if (!textoSelecionado.trim()) return;
+
+    const html = `<span style="font-size:1.7em;font-weight:700;line-height:1.3;">${textoSelecionado}</span>`;
+    aplicarComando("insertHTML", html);
+  };
+
+  const alternarGrifo = () => {
+    if (!notaAtual) return;
+
+    const selecao = window.getSelection();
+    if (!selecao || selecao.rangeCount === 0 || selecao.isCollapsed) return;
+
+    const range = selecao.getRangeAt(0);
+    const inicio = encontrarElemento(range.startContainer);
+    const fim = encontrarElemento(range.endContainer);
+
+    const grifoInicio = inicio?.closest("span[data-grifado='true']");
+    const grifoFim = fim?.closest("span[data-grifado='true']");
+
+    const selecionado = selecao.toString().trim();
+    if (
+      selecionado &&
+      grifoInicio &&
+      grifoInicio === grifoFim &&
+      grifoInicio.textContent?.trim() === selecionado
+    ) {
+      removerGrifoDoSpan(grifoInicio);
+      atualizarNota("conteudo", editorRef.current?.innerHTML || "");
+      return;
+    }
+
+    const conteudoSelecionado = range.extractContents();
+    const span = document.createElement("span");
+    span.dataset.grifado = "true";
+    span.style.backgroundColor = COR_GRIFO;
+    span.style.color = COR_TEXTO_GRIFO;
+    span.appendChild(conteudoSelecionado);
+
+    range.insertNode(span);
+    selecao.removeAllRanges();
+
+    const novoRange = document.createRange();
+    novoRange.selectNodeContents(span);
+    selecao.addRange(novoRange);
+
+    atualizarNota("conteudo", editorRef.current?.innerHTML || "");
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[230px_270px_1fr] gap-4 h-[65vh]">
       <aside className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-800/40">
@@ -177,20 +313,12 @@ function Anotacoes({ user }) {
           <h3 className="font-semibold">Cadernos</h3>
           <div className="flex items-center gap-1">
             <button
-              onClick={editarCaderno}
+              onClick={gerenciarCaderno}
               disabled={!cadernoAtual}
               className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 cursor-pointer disabled:opacity-40"
-              title="Renomear caderno"
+              title="Editar caderno"
             >
               <Pencil size={16} />
-            </button>
-            <button
-              onClick={excluirCaderno}
-              disabled={!cadernoAtual}
-              className="p-2 rounded-lg hover:bg-red-100 text-red-500 dark:hover:bg-red-900/20 cursor-pointer disabled:opacity-40"
-              title="Excluir caderno"
-            >
-              <Trash2 size={16} />
             </button>
             <button
               onClick={criarCaderno}
@@ -226,14 +354,24 @@ function Anotacoes({ user }) {
       <aside className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-800/40">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-semibold">Notas</h3>
-          <button
-            onClick={criarNota}
-            disabled={!cadernoAtual}
-            className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-40 dark:hover:bg-slate-700 cursor-pointer"
-            title="Nova nota"
-          >
-            <FilePlus2 size={18} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={gerenciarNota}
+              disabled={!notaAtual}
+              className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-40 dark:hover:bg-slate-700 cursor-pointer"
+              title="Editar nota"
+            >
+              <Pencil size={16} />
+            </button>
+            <button
+              onClick={criarNota}
+              disabled={!cadernoAtual}
+              className="p-2 rounded-lg hover:bg-slate-200 disabled:opacity-40 dark:hover:bg-slate-700 cursor-pointer"
+              title="Nova nota"
+            >
+              <FilePlus2 size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="space-y-2 overflow-y-auto max-h-[56vh] pr-1">
@@ -266,23 +404,16 @@ function Anotacoes({ user }) {
           </div>
         ) : (
           <div className="h-full flex flex-col gap-3">
-            <div className="flex gap-2">
-              <input
-                value={notaAtual.titulo}
-                onChange={(e) => atualizarNota("titulo", e.target.value)}
-                placeholder="Título da nota"
-                className="w-full rounded-xl border px-4 py-2 bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 outline-none focus:border-cyan-500"
-              />
-              <button
-                onClick={excluirNota}
-                className="px-3 rounded-xl border border-red-300 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 cursor-pointer"
-                title="Excluir nota"
-              >
-                <Trash2 size={18} />
-              </button>
-            </div>
+            <h4 className="font-semibold text-lg">{notaAtual.titulo}</h4>
 
             <div className="flex flex-wrap items-center gap-2 p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80">
+              <button
+                onClick={aplicarTitulo}
+                className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+                title="Título no texto selecionado"
+              >
+                <Heading1 size={16} />
+              </button>
               <button
                 onClick={() => aplicarComando("bold")}
                 className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
@@ -305,11 +436,18 @@ function Anotacoes({ user }) {
                 <Underline size={16} />
               </button>
               <button
-                onClick={() => aplicarComando("hiliteColor", "#fef08a")}
+                onClick={alternarGrifo}
                 className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
                 title="Grifado"
               >
                 <Highlighter size={16} />
+              </button>
+              <button
+                onClick={() => aplicarComando("insertUnorderedList")}
+                className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+                title="Lista"
+              >
+                <List size={16} />
               </button>
               <select
                 value={tamanhoFonte}
