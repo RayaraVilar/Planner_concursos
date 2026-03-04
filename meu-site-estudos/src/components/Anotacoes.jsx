@@ -8,7 +8,6 @@ import {
   Italic,
   Underline,
   Highlighter,
-  Eraser,
 } from "lucide-react";
 
 const textoInicial = `<h1>Bem-vindo(a)!</h1><p>Use este espaço como um Notion pessoal para organizar seus estudos.</p><ul><li>Crie cadernos por matéria</li><li>Separe notas por tema</li><li>Monte checklists com [ ] tarefas</li></ul>`;
@@ -39,20 +38,6 @@ const htmlSeguro = (conteudo = "") => {
     .replace(/\n/g, "<br>");
 };
 
-const normalizarCadernos = (lista = []) => {
-  if (!Array.isArray(lista)) return [];
-
-  return lista.map((caderno) => ({
-    ...caderno,
-    notas: Array.isArray(caderno?.notas)
-      ? caderno.notas.map((nota) => ({
-          ...nota,
-          conteudo: htmlSeguro(nota?.conteudo || ""),
-        }))
-      : [],
-  }));
-};
-
 function Anotacoes({ user }) {
   const storageKey = `planner-anotacoes-${user.id}`;
   const [cadernos, setCadernos] = useState([]);
@@ -60,29 +45,6 @@ function Anotacoes({ user }) {
   const [notaId, setNotaId] = useState("");
   const [tamanhoFonte, setTamanhoFonte] = useState("3");
   const editorRef = useRef(null);
-  const ultimaNotaSincronizadaRef = useRef("");
-  const selecaoRef = useRef(null);
-
-  const salvarSelecao = () => {
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
-    const range = selection.getRangeAt(0);
-    if (!editorRef.current?.contains(range.commonAncestorContainer)) return;
-    selecaoRef.current = range.cloneRange();
-  };
-
-  const restaurarSelecao = () => {
-    if (!selecaoRef.current) return;
-    const selection = window.getSelection();
-    if (!selection) return;
-
-    try {
-      selection.removeAllRanges();
-      selection.addRange(selecaoRef.current);
-    } catch {
-      selecaoRef.current = null;
-    }
-  };
 
   useEffect(() => {
     const inicial = [criarCadernoInicial()];
@@ -93,18 +55,8 @@ function Anotacoes({ user }) {
     };
 
     const salvo = localStorage.getItem(storageKey);
-    if (!salvo) {
-      salvarInicial();
-      return;
-    }
-
-    try {
+    if (salvo) {
       const dados = normalizarCadernos(JSON.parse(salvo));
-      if (!dados.length) {
-        salvarInicial();
-        return;
-      }
-
       setCadernos(dados);
       setCadernoId(dados[0]?.id || "");
       setNotaId(dados[0]?.notas?.[0]?.id || "");
@@ -204,7 +156,7 @@ function Anotacoes({ user }) {
   const excluirNota = () => {
     if (!cadernoAtual || !notaAtual) return;
 
-    const restantes = (cadernoAtual.notas || []).filter((n) => n.id !== notaAtual.id);
+    const restantes = cadernoAtual.notas.filter((n) => n.id !== notaAtual.id);
     setCadernos((prev) =>
       prev.map((c) => (c.id === cadernoAtual.id ? { ...c, notas: restantes } : c))
     );
@@ -214,19 +166,9 @@ function Anotacoes({ user }) {
   const aplicarComando = (comando, valor = null) => {
     if (!notaAtual) return;
     editorRef.current?.focus();
-    restaurarSelecao();
     document.execCommand(comando, false, valor);
-    salvarSelecao();
     atualizarNota("conteudo", editorRef.current?.innerHTML || "");
   };
-
-  useEffect(() => {
-    if (!notaAtual || !editorRef.current) return;
-    if (ultimaNotaSincronizadaRef.current === notaAtual.id) return;
-    editorRef.current.innerHTML = notaAtual.conteudo || "";
-    ultimaNotaSincronizadaRef.current = notaAtual.id;
-    selecaoRef.current = null;
-  }, [notaAtual]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[230px_270px_1fr] gap-4 h-[65vh]">
@@ -342,7 +284,6 @@ function Anotacoes({ user }) {
 
             <div className="flex flex-wrap items-center gap-2 p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80">
               <button
-                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => aplicarComando("bold")}
                 className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
                 title="Negrito"
@@ -350,7 +291,6 @@ function Anotacoes({ user }) {
                 <Bold size={16} />
               </button>
               <button
-                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => aplicarComando("italic")}
                 className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
                 title="Itálico"
@@ -358,7 +298,6 @@ function Anotacoes({ user }) {
                 <Italic size={16} />
               </button>
               <button
-                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => aplicarComando("underline")}
                 className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
                 title="Sublinhado"
@@ -366,24 +305,14 @@ function Anotacoes({ user }) {
                 <Underline size={16} />
               </button>
               <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => aplicarComando("hiliteColor", "#fde047")}
+                onClick={() => aplicarComando("hiliteColor", "#fef08a")}
                 className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
                 title="Grifado"
               >
                 <Highlighter size={16} />
               </button>
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => aplicarComando("hiliteColor", "transparent")}
-                className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
-                title="Desgrifar"
-              >
-                <Eraser size={16} />
-              </button>
               <select
                 value={tamanhoFonte}
-                onMouseDown={(e) => e.preventDefault()}
                 onChange={(e) => {
                   setTamanhoFonte(e.target.value);
                   aplicarComando("fontSize", e.target.value);
@@ -400,16 +329,13 @@ function Anotacoes({ user }) {
             </div>
 
             <div
+              key={notaAtual.id}
               ref={editorRef}
               contentEditable
               suppressContentEditableWarning
-              onInput={(e) => {
-                salvarSelecao();
-                atualizarNota("conteudo", e.currentTarget.innerHTML);
-              }}
-              onKeyUp={salvarSelecao}
-              onMouseUp={salvarSelecao}
+              onInput={(e) => atualizarNota("conteudo", e.currentTarget.innerHTML)}
               className="flex-1 rounded-xl border px-4 py-3 bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 outline-none focus:border-cyan-500 overflow-y-auto leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: htmlSeguro(notaAtual.conteudo) }}
             />
             <p className="text-xs text-slate-500">
               Dica: use a barra acima para formatar texto e deixar suas anotações mais visuais.
