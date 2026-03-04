@@ -47,19 +47,23 @@ function Anotacoes({ user }) {
   const editorRef = useRef(null);
 
   useEffect(() => {
+    const inicial = [criarCadernoInicial()];
+    const salvarInicial = () => {
+      setCadernos(inicial);
+      setCadernoId(inicial[0].id);
+      setNotaId(inicial[0].notas[0].id);
+    };
+
     const salvo = localStorage.getItem(storageKey);
     if (salvo) {
       const dados = normalizarCadernos(JSON.parse(salvo));
       setCadernos(dados);
       setCadernoId(dados[0]?.id || "");
       setNotaId(dados[0]?.notas?.[0]?.id || "");
-      return;
+    } catch {
+      localStorage.removeItem(storageKey);
+      salvarInicial();
     }
-
-    const inicial = [criarCadernoInicial()];
-    setCadernos(inicial);
-    setCadernoId(inicial[0].id);
-    setNotaId(inicial[0].notas[0].id);
   }, [storageKey]);
 
   useEffect(() => {
@@ -115,14 +119,14 @@ function Anotacoes({ user }) {
     if (!cadernoAtual) return;
     const nova = {
       id: crypto.randomUUID(),
-      titulo: `Nova nota ${cadernoAtual.notas.length + 1}`,
+      titulo: `Nova nota ${(cadernoAtual.notas || []).length + 1}`,
       conteudo: "",
       atualizadoEm: new Date().toISOString(),
     };
 
     setCadernos((prev) =>
       prev.map((c) =>
-        c.id === cadernoAtual.id ? { ...c, notas: [nova, ...c.notas] } : c
+        c.id === cadernoAtual.id ? { ...c, notas: [nova, ...(c.notas || [])] } : c
       )
     );
     setNotaId(nova.id);
@@ -135,7 +139,7 @@ function Anotacoes({ user }) {
         if (c.id !== cadernoAtual.id) return c;
         return {
           ...c,
-          notas: c.notas.map((n) =>
+          notas: (c.notas || []).map((n) =>
             n.id === notaAtual.id
               ? {
                   ...n,
@@ -204,7 +208,7 @@ function Anotacoes({ user }) {
               key={c.id}
               onClick={() => {
                 setCadernoId(c.id);
-                setNotaId(c.notas[0]?.id || "");
+                setNotaId((c.notas || [])[0]?.id || "");
               }}
               className={`w-full text-left px-3 py-2 rounded-lg text-sm cursor-pointer ${
                 cadernoId === c.id
@@ -213,7 +217,7 @@ function Anotacoes({ user }) {
               }`}
             >
               <p className="font-medium truncate">{c.titulo}</p>
-              <p className="text-xs opacity-75">{c.notas.length} nota(s)</p>
+              <p className="text-xs opacity-75">{(c.notas || []).length} nota(s)</p>
             </button>
           ))}
         </div>
@@ -233,7 +237,7 @@ function Anotacoes({ user }) {
         </div>
 
         <div className="space-y-2 overflow-y-auto max-h-[56vh] pr-1">
-          {cadernoAtual?.notas.map((n) => (
+          {cadernoAtual?.notas?.map((n) => (
             <button
               key={n.id}
               onClick={() => setNotaId(n.id)}
