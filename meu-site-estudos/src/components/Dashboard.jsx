@@ -130,6 +130,7 @@ function Dashboard({ user }) {
                     )}
                     <MenuLink id="cronometro" icon={Timer} label="Estudar Agora" />
                     <MenuLink id="flashcards" icon={Layers} label="Flashcards" />
+                    <MenuLink id="anotacoes" icon={NotebookPen} label="Anotações" />
 
                     {/* ✅ ACOMPANHAMENTO */}
                     {menuAberto && (
@@ -140,7 +141,6 @@ function Dashboard({ user }) {
                     <MenuLink id="revisoes" icon={BookOpen} label="Revisões" />
                     <MenuLink id="historico" icon={History} label="Histórico" />
                     <MenuLink id="amizades" icon={Users} label="Amizades" />
-                    <MenuLink id="anotacoes" icon={NotebookPen} label="Anotações" />
                 </nav>
 
                 {/* ✅ BOTÃO SAIR SEM SAIR DA TELA */}
