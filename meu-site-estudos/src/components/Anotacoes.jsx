@@ -83,6 +83,8 @@ function Anotacoes({ user }) {
   const [cadernoId, setCadernoId] = useState("");
   const [notaId, setNotaId] = useState("");
   const [tamanhoFonte, setTamanhoFonte] = useState("3");
+  const [modoEdicao, setModoEdicao] = useState(false);
+  const [conteudoEdicao, setConteudoEdicao] = useState("");
   const editorRef = useRef(null);
 
   useEffect(() => {
@@ -91,6 +93,7 @@ function Anotacoes({ user }) {
       setCadernos(inicial);
       setCadernoId(inicial[0].id);
       setNotaId(inicial[0].notas[0].id);
+      setConteudoEdicao(inicial[0].notas[0].conteudo || "");
     };
 
     try {
@@ -101,9 +104,12 @@ function Anotacoes({ user }) {
       }
 
       const dados = normalizarCadernos(JSON.parse(salvo));
+      const primeiroCadernoId = dados[0]?.id || "";
+      const primeiraNotaId = dados[0]?.notas?.[0]?.id || "";
       setCadernos(dados);
-      setCadernoId(dados[0]?.id || "");
-      setNotaId(dados[0]?.notas?.[0]?.id || "");
+      setCadernoId(primeiroCadernoId);
+      setNotaId(primeiraNotaId);
+      setConteudoEdicao(dados[0]?.notas?.find((n) => n.id === primeiraNotaId)?.conteudo || "");
     } catch {
       localStorage.removeItem(storageKey);
       salvarInicial();
@@ -125,6 +131,27 @@ function Anotacoes({ user }) {
     [cadernoAtual, notaId]
   );
 
+
+  const abrirNota = (proximoNotaId) => {
+    setNotaId(proximoNotaId || "");
+    setModoEdicao(false);
+    setConteudoEdicao(
+      cadernoAtual?.notas?.find((n) => n.id === proximoNotaId)?.conteudo || ""
+    );
+  };
+
+  const abrirCaderno = (proximoCadernoId, listaCadernos = cadernos) => {
+    const caderno = listaCadernos.find((c) => c.id === proximoCadernoId);
+    const primeiraNotaId = (caderno?.notas || [])[0]?.id || "";
+    setCadernoId(proximoCadernoId || "");
+    setNotaId(primeiraNotaId);
+    setModoEdicao(false);
+    setConteudoEdicao(
+      caderno?.notas?.find((n) => n.id === primeiraNotaId)?.conteudo || ""
+    );
+  };
+
+
   const criarCaderno = () => {
     const titulo = window.prompt("Nome do novo caderno:")?.trim();
     if (!titulo) return;
@@ -135,8 +162,7 @@ function Anotacoes({ user }) {
       notas: [],
     };
     setCadernos((prev) => [...prev, novo]);
-    setCadernoId(novo.id);
-    setNotaId("");
+    abrirCaderno(novo.id, [...cadernos, novo]);
   };
 
   const gerenciarCaderno = () => {
@@ -160,8 +186,7 @@ function Anotacoes({ user }) {
 
       const restantes = cadernos.filter((c) => c.id !== cadernoAtual.id);
       setCadernos(restantes);
-      setCadernoId(restantes[0]?.id || "");
-      setNotaId(restantes[0]?.notas?.[0]?.id || "");
+      abrirCaderno(restantes[0]?.id || "", restantes);
       return;
     }
 
@@ -192,7 +217,7 @@ function Anotacoes({ user }) {
         c.id === cadernoAtual.id ? { ...c, notas: [nova, ...(c.notas || [])] } : c
       )
     );
-    setNotaId(nova.id);
+    abrirNota(nova.id);
   };
 
   const atualizarNota = (campo, valor) => {
@@ -243,14 +268,14 @@ function Anotacoes({ user }) {
     setCadernos((prev) =>
       prev.map((c) => (c.id === cadernoAtual.id ? { ...c, notas: restantes } : c))
     );
-    setNotaId(restantes[0]?.id || "");
+    abrirNota(restantes[0]?.id || "");
   };
 
   const aplicarComando = (comando, valor = null) => {
-    if (!notaAtual) return;
+    if (!notaAtual || !modoEdicao) return;
     editorRef.current?.focus();
     document.execCommand(comando, false, valor);
-    atualizarNota("conteudo", editorRef.current?.innerHTML || "");
+    setConteudoEdicao(editorRef.current?.innerHTML || "");
   };
 
   const aplicarTitulo = () => {
@@ -265,7 +290,7 @@ function Anotacoes({ user }) {
   };
 
   const alternarGrifo = () => {
-    if (!notaAtual) return;
+    if (!notaAtual || !modoEdicao) return;
 
     const selecao = window.getSelection();
     if (!selecao || selecao.rangeCount === 0 || selecao.isCollapsed) return;
@@ -285,7 +310,7 @@ function Anotacoes({ user }) {
       grifoInicio.textContent?.trim() === selecionado
     ) {
       removerGrifoDoSpan(grifoInicio);
-      atualizarNota("conteudo", editorRef.current?.innerHTML || "");
+      setConteudoEdicao(editorRef.current?.innerHTML || "");
       return;
     }
 
@@ -303,7 +328,24 @@ function Anotacoes({ user }) {
     novoRange.selectNodeContents(span);
     selecao.addRange(novoRange);
 
-    atualizarNota("conteudo", editorRef.current?.innerHTML || "");
+    setConteudoEdicao(editorRef.current?.innerHTML || "");
+  };
+
+  const iniciarEdicao = () => {
+    if (!notaAtual) return;
+    setConteudoEdicao(notaAtual.conteudo || "");
+    setModoEdicao(true);
+  };
+
+  const cancelarEdicao = () => {
+    setConteudoEdicao(notaAtual?.conteudo || "");
+    setModoEdicao(false);
+  };
+
+  const salvarEdicao = () => {
+    if (!notaAtual) return;
+    atualizarNota("conteudo", conteudoEdicao);
+    setModoEdicao(false);
   };
 
   return (
@@ -334,10 +376,7 @@ function Anotacoes({ user }) {
           {cadernos.map((c) => (
             <button
               key={c.id}
-              onClick={() => {
-                setCadernoId(c.id);
-                setNotaId((c.notas || [])[0]?.id || "");
-              }}
+              onClick={() => abrirCaderno(c.id)}
               className={`w-full text-left px-3 py-2 rounded-lg text-sm cursor-pointer ${
                 cadernoId === c.id
                   ? "bg-cyan-600 text-white"
@@ -378,7 +417,7 @@ function Anotacoes({ user }) {
           {cadernoAtual?.notas?.map((n) => (
             <button
               key={n.id}
-              onClick={() => setNotaId(n.id)}
+              onClick={() => abrirNota(n.id)}
               className={`w-full text-left px-3 py-2 rounded-lg text-sm cursor-pointer ${
                 notaId === n.id
                   ? "bg-cyan-600 text-white"
@@ -404,79 +443,115 @@ function Anotacoes({ user }) {
           </div>
         ) : (
           <div className="h-full flex flex-col gap-3">
-            <h4 className="font-semibold text-lg">{notaAtual.titulo}</h4>
-
-            <div className="flex flex-wrap items-center gap-2 p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80">
-              <button
-                onClick={aplicarTitulo}
-                className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
-                title="Título no texto selecionado"
-              >
-                <Heading1 size={16} />
-              </button>
-              <button
-                onClick={() => aplicarComando("bold")}
-                className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
-                title="Negrito"
-              >
-                <Bold size={16} />
-              </button>
-              <button
-                onClick={() => aplicarComando("italic")}
-                className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
-                title="Itálico"
-              >
-                <Italic size={16} />
-              </button>
-              <button
-                onClick={() => aplicarComando("underline")}
-                className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
-                title="Sublinhado"
-              >
-                <Underline size={16} />
-              </button>
-              <button
-                onClick={alternarGrifo}
-                className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
-                title="Grifado"
-              >
-                <Highlighter size={16} />
-              </button>
-              <button
-                onClick={() => aplicarComando("insertUnorderedList")}
-                className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
-                title="Lista"
-              >
-                <List size={16} />
-              </button>
-              <select
-                value={tamanhoFonte}
-                onChange={(e) => {
-                  setTamanhoFonte(e.target.value);
-                  aplicarComando("fontSize", e.target.value);
-                }}
-                className="ml-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1 text-sm"
-                title="Tamanho da fonte"
-              >
-                <option value="2">Pequena</option>
-                <option value="3">Normal</option>
-                <option value="4">Média</option>
-                <option value="5">Grande</option>
-                <option value="6">Muito grande</option>
-              </select>
+            <div className="flex items-center justify-between gap-3">
+              <h4 className="font-semibold text-lg">{notaAtual.titulo}</h4>
+              {!modoEdicao ? (
+                <button
+                  onClick={iniciarEdicao}
+                  className="px-3 py-1.5 rounded-lg bg-cyan-600 text-white text-sm font-medium hover:bg-cyan-700"
+                >
+                  Editar
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={cancelarEdicao}
+                    className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={salvarEdicao}
+                    className="px-3 py-1.5 rounded-lg bg-cyan-600 text-white text-sm font-medium hover:bg-cyan-700"
+                  >
+                    Salvar
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div
-              key={notaAtual.id}
-              ref={editorRef}
-              contentEditable
-              suppressContentEditableWarning
-              onInput={(e) => atualizarNota("conteudo", e.currentTarget.innerHTML)}
-              className="flex-1 rounded-xl border px-4 py-3 bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 outline-none focus:border-cyan-500 overflow-y-auto leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: htmlSeguro(notaAtual.conteudo) }}
-            />
+            {modoEdicao && (
+              <div className="flex flex-wrap items-center gap-2 p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80">
+                <button
+                  onClick={aplicarTitulo}
+                  className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+                  title="Título no texto selecionado"
+                >
+                  <Heading1 size={16} />
+                </button>
+                <button
+                  onClick={() => aplicarComando("bold")}
+                  className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+                  title="Negrito"
+                >
+                  <Bold size={16} />
+                </button>
+                <button
+                  onClick={() => aplicarComando("italic")}
+                  className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+                  title="Itálico"
+                >
+                  <Italic size={16} />
+                </button>
+                <button
+                  onClick={() => aplicarComando("underline")}
+                  className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+                  title="Sublinhado"
+                >
+                  <Underline size={16} />
+                </button>
+                <button
+                  onClick={alternarGrifo}
+                  className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+                  title="Grifado"
+                >
+                  <Highlighter size={16} />
+                </button>
+                <button
+                  onClick={() => aplicarComando("insertUnorderedList")}
+                  className="p-2 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700"
+                  title="Lista"
+                >
+                  <List size={16} />
+                </button>
+                <select
+                  value={tamanhoFonte}
+                  onChange={(e) => {
+                    setTamanhoFonte(e.target.value);
+                    aplicarComando("fontSize", e.target.value);
+                  }}
+                  className="ml-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1 text-sm"
+                  title="Tamanho da fonte"
+                >
+                  <option value="2">Pequena</option>
+                  <option value="3">Normal</option>
+                  <option value="4">Média</option>
+                  <option value="5">Grande</option>
+                  <option value="6">Muito grande</option>
+                </select>
+              </div>
+            )}
+
+            {modoEdicao ? (
+              <div
+                key={`${notaAtual.id}-edicao`}
+                ref={editorRef}
+                contentEditable
+                suppressContentEditableWarning
+                onInput={(e) => setConteudoEdicao(e.currentTarget.innerHTML)}
+                className="flex-1 rounded-xl border px-4 py-3 bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 outline-none focus:border-cyan-500 overflow-y-auto leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: htmlSeguro(conteudoEdicao) }}
+              />
+            ) : (
+              <div
+                className="flex-1 rounded-xl border px-4 py-3 bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 overflow-y-auto leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: htmlSeguro(notaAtual.conteudo) }}
+              />
+            )}
             <p className="text-xs text-slate-500">
-              Dica: use a barra acima para formatar texto e deixar suas anotações mais visuais.
+              {modoEdicao
+                ? "Dica: use a barra acima para formatar texto e salvar quando terminar."
+                : "Nota em modo leitura. Clique em Editar para alterar o conteúdo."}
             </p>
           </div>
         )}
