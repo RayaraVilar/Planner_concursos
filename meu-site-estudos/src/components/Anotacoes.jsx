@@ -275,7 +275,14 @@ function Anotacoes({ user }) {
 
     if (acao !== "apagar") return;
 
-    excluirNotaAtual();
+    const confirmou = window.confirm(`Excluir a nota "${notaAtual.titulo}"?`);
+    if (!confirmou) return;
+
+    const restantes = cadernoAtual.notas.filter((n) => n.id !== notaAtual.id);
+    setCadernos((prev) =>
+      prev.map((c) => (c.id === cadernoAtual.id ? { ...c, notas: restantes } : c))
+    );
+    abrirNota(restantes[0]?.id || "");
   };
 
   const aplicarComando = (comando, valor = null) => {
@@ -461,12 +468,6 @@ function Anotacoes({ user }) {
                 </button>
               ) : (
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={excluirNotaAtual}
-                    className="px-3 py-1.5 rounded-lg bg-rose-600 text-white text-sm font-medium hover:bg-rose-700"
-                  >
-                    Excluir
-                  </button>
                   <button
                     onClick={cancelarEdicao}
                     className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
