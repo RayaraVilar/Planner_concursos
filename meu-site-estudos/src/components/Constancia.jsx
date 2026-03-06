@@ -35,6 +35,15 @@ function computeStreakFrom(dayKeysSet, startKey) {
     return streak;
 }
 
+function computeCurrentStreak(dayKeysSet, todayKey) {
+    if (dayKeysSet.has(todayKey)) {
+        return computeStreakFrom(dayKeysSet, todayKey);
+    }
+
+    const yesterdayKey = toDateKey(addDays(new Date(`${todayKey}T12:00:00`), -1));
+    return computeStreakFrom(dayKeysSet, yesterdayKey);
+}
+
 function computeBestStreak(dayKeysSet, orderedKeys) {
     let best = 0;
     let run = 0;
@@ -73,7 +82,7 @@ export default function Constancia({ user }) {
     }, [statsByDay]);
 
     const currentStreak = useMemo(
-        () => computeStreakFrom(studiedDays, todayKey),
+        () => computeCurrentStreak(studiedDays, todayKey),
         [studiedDays, todayKey]
     );
 
