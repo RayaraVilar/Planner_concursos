@@ -39,7 +39,7 @@ function safeTags(text) {
         .slice(0, 8);
 }
 
-// ====== “A partir dos erros” (colando Pergunta | Resposta) ======
+// ====== “Gerar card por linha” (colando Pergunta | Resposta) ======
 function parsePairs(text) {
     const lines = String(text || "")
         .split("\n")
@@ -137,6 +137,7 @@ export default function Flashcards({ user }) {
     const [studyIndex, setStudyIndex] = useState(0);
     const [showAnswer, setShowAnswer] = useState(false);
     const [wrongCards, setWrongCards] = useState([]);
+    const [rightCards, setRightCards] = useState([]);
 
     const selectedDeck = useMemo(
         () => tree.decks.find((d) => d.id === deckId),
@@ -147,6 +148,7 @@ export default function Flashcards({ user }) {
         setStudyIndex(0);
         setShowAnswer(false);
         setWrongCards([]);
+        setRightCards([]);
     }, [deckId, tree.cards.length]);
 
     const breadcrumb = useMemo(() => {
@@ -766,7 +768,12 @@ export default function Flashcards({ user }) {
             .from("flash_card_reviews")
             .insert([{ user_id: userId, card_id: card.id, resultado: acertou ? "acerto" : "erro" }]);
 
-        if (!acertou) {
+        if (acertou) {
+            setRightCards((prev) => {
+                if (prev.some((c) => c.id === card.id)) return prev;
+                return [...prev, card];
+            });
+        } else {
             setWrongCards((prev) => {
                 if (prev.some((c) => c.id === card.id)) return prev;
                 return [...prev, card];
@@ -1013,9 +1020,12 @@ export default function Flashcards({ user }) {
                                 <div className="space-y-4">
                                     <div className="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400">
                                         <span>
-                                            Card {Math.min(studyIndex + 1, tree.cards.length)} de {tree.cards.length}
+                                            Pergunta {Math.min(studyIndex + 1, tree.cards.length)}/{tree.cards.length}
                                         </span>
-                                        <span>Erros na rodada: {wrongCards.length}</span>
+                                        <span className="flex items-center gap-3">
+                                            <span>Acertos: {rightCards.length}</span>
+                                            <span>Erros: {wrongCards.length}</span>
+                                        </span>
                                     </div>
 
                                     {tree.cards[studyIndex] ? (
@@ -1043,7 +1053,14 @@ export default function Flashcards({ user }) {
                                     ) : (
                                         <div className="p-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-center">
                                             <p className="font-black text-slate-900 dark:text-white">Você terminou os cards desta rodada 🎉</p>
-                                            <button onClick={() => setStudyIndex(0)} className="mt-3 px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 font-black text-xs">
+                                            <button
+                                                onClick={() => {
+                                                    setStudyIndex(0);
+                                                    setRightCards([]);
+                                                    setWrongCards([]);
+                                                }}
+                                                className="mt-3 px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 font-black text-xs"
+                                            >
                                                 Recomeçar rodada
                                             </button>
                                         </div>
@@ -1053,14 +1070,14 @@ export default function Flashcards({ user }) {
                                         <button
                                             onClick={() => tree.cards[studyIndex] && marcarResultado(tree.cards[studyIndex], false)}
                                             disabled={!tree.cards[studyIndex]}
-                                            className="px-4 py-3 rounded-2xl bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300 font-black text-sm disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+                                            className="px-4 py-3 rounded-2xl bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:hover:bg-rose-900/50 transition font-black text-sm disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
                                         >
                                             <XCircle size={16} /> Errei
                                         </button>
                                         <button
                                             onClick={() => tree.cards[studyIndex] && marcarResultado(tree.cards[studyIndex], true)}
                                             disabled={!tree.cards[studyIndex]}
-                                            className="px-4 py-3 rounded-2xl bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 font-black text-sm disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+                                            className="px-4 py-3 rounded-2xl bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/50 transition font-black text-sm disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
                                         >
                                             <CheckCircle2 size={16} /> Acertei
                                         </button>
@@ -1104,7 +1121,7 @@ export default function Flashcards({ user }) {
                                             </button>
 
                                             <button onClick={() => setCreateMode("errors")} className={ui.modalCard}>
-                                                <div className="font-black text-slate-900 dark:text-white">A partir dos erros</div>
+                                                <div className="font-black text-slate-900 dark:text-white">Gerar card por linha</div>
                                                 <div className={ui.modalText}>Cole “Pergunta | Resposta” (1 por linha)</div>
                                             </button>
 
@@ -1167,7 +1184,7 @@ export default function Flashcards({ user }) {
                                     {createMode === "errors" && (
                                         <div className="mt-4">
                                             <div className="flex items-center justify-between">
-                                                <div className="font-black text-slate-900 dark:text-white">Criar a partir dos erros</div>
+                                                <div className="font-black text-slate-900 dark:text-white">Gerar card por linha</div>
                                                 <button
                                                     onClick={() => setCreateMode("")}
                                                     className="text-sm font-black underline text-slate-600 dark:text-slate-300"

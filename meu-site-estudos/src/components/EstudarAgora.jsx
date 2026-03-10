@@ -1184,6 +1184,10 @@ const EstudarAgora = ({ user }) => {
 
             let materiaRowFinal = materiaExistente;
 
+            if (errFindMat) {
+                throw errFindMat;
+            }
+
             // 2) se não existe, cria com uma cor automática diferente
             if (!materiaExistente) {
                 // pega cores já usadas pelo usuário
@@ -1210,12 +1214,30 @@ const EstudarAgora = ({ user }) => {
                     .select("*")
                     .single();
 
-                if (!errInsert) materiaRowFinal = criada;
+                if (errInsert) throw errInsert;
+                materiaRowFinal = criada;
+            }
+
+            // fallback de compatibilidade: busca por nome caso insert/select retorne vazio
+            if (!materiaRowFinal?.id) {
+                const { data: fallbackMateria, error: fallbackError } = await supabase
+                    .from("materias")
+                    .select("id,nome,cor_hex")
+                    .eq("user_id", user.id)
+                    .eq("nome", materiaNome)
+                    .maybeSingle();
+
+                if (fallbackError) throw fallbackError;
+                materiaRowFinal = fallbackMateria || null;
+            }
+
+            if (!materiaRowFinal?.id) {
+                throw new Error("Não foi possível vincular a sessão a uma matéria.");
             }
 
             // 3) adiciona conteúdo se tiver
-            if (materiaRowFinal?.id && conteudoNome) {
-                await supabase
+            if (conteudoNome) {
+                const { error: conteudoError } = await supabase
                     .from("materia_conteudos")
                     .upsert(
                         [
@@ -1227,6 +1249,8 @@ const EstudarAgora = ({ user }) => {
                         ],
                         { onConflict: "materia_id,titulo" }
                     );
+
+                if (conteudoError) throw conteudoError;
             }
 
 
