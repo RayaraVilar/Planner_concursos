@@ -316,6 +316,8 @@ const Calendario = ({ user }) => {
 
                 const titulo = t.texto || "Tarefa";
                 const concluida = !!t.concluida;
+                const fimConclusao =
+                    t.concluida_em || t.data_conclusao || t.finalizada_em || t.realizada_em || null;
 
                 const rawDif = (t.dificuldade || t.nivel || t.level || "")
                     .toString()
@@ -330,6 +332,7 @@ const Calendario = ({ user }) => {
                     id: `task-${t.id}`,
                     title: titulo,
                     start: t.data_vencimento,
+                    end: concluida && fimConclusao ? fimConclusao : undefined,
                     allDay: true,
                     backgroundColor: "transparent",
                     borderColor: "transparent",
@@ -341,6 +344,7 @@ const Calendario = ({ user }) => {
                         corPrioridade: cor,
                         categoria: t.categoria || "To-do",
                         concluida,
+                        concluidaEm: fimConclusao,
                         notas: t.notas,
                         dificuldade,
                     },
@@ -444,14 +448,20 @@ const Calendario = ({ user }) => {
 
             if (t.tipo === "tarefa") {
                 const novo = !t.concluida;
+                const concluidaEm = novo ? new Date().toISOString() : null;
                 const { error } = await supabase
                     .from("tarefas")
-                    .update({ concluida: novo })
+                    .update({ concluida: novo, concluida_em: concluidaEm })
                     .eq("id", t.supaId)
                     .eq("user_id", user.id);
                 if (error) throw error;
 
-                setEventoSelecionado((prev) => ({ ...prev, concluida: novo }));
+                setEventoSelecionado((prev) => ({
+                    ...prev,
+                    concluida: novo,
+                    concluidaEm,
+                    end: concluidaEm,
+                }));
             }
 
             if (t.tipo === "revisao") {
