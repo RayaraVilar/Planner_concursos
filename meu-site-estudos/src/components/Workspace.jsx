@@ -825,7 +825,7 @@ export default function Workspace({ user }) {
 
                 <button
                     onClick={() => { setPickerOpen(true); setSelectedTypes([]); }}
-                    className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-cyan-600 hover:bg-cyan-500 text-white font-black text-sm cursor-pointer"
+                    className="inline-flex items-center gap-2 px-4 py-3 rounded-2xl bg-[#06B6D4] hover:bg-cyan-500 text-white font-black text-sm cursor-pointer"
                 >
                     <Plus size={18} />
                     Adicionar widget
@@ -925,7 +925,7 @@ export default function Workspace({ user }) {
                             <button
                                 onClick={addSelectedWidgets}
                                 disabled={selectedTypes.length === 0}
-                                className="w-full py-3 rounded-2xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black"
+                                className="w-full py-3 rounded-2xl bg-[#06B6D4] hover:bg-cyan-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black"
                             >
                                 Adicionar selecionados ({selectedTypes.length})
                             </button>
