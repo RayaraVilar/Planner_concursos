@@ -165,26 +165,29 @@ function Dashboard({ user }) {
                     </p>
                 </header>
 
-                <section className="rounded-2xl p-6 min-h-[500px] shadow-xl border bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800">
-                    {abaAtiva === "inicio" && <Workspace user={user} />}
-                    {abaAtiva === "dashboard-geral" && <DashboardGeral user={user} />}
-                    {abaAtiva === "constancia" && <Constancia user={user} />}
+                {abaAtiva === "inicio" ? (
+                    <Workspace user={user} />
+                ) : (
+                    <section className="rounded-2xl p-6 min-h-[500px] shadow-xl border bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800">
+                        {abaAtiva === "dashboard-geral" && <DashboardGeral user={user} />}
+                        {abaAtiva === "constancia" && <Constancia user={user} />}
 
-                    <div className={abaAtiva === "cronometro" ? "block" : "hidden"}>
-                        <EstudarAgora user={user} />
-                    </div>
-                    {abaAtiva === "materias" && <Materias user={user} />}
-                    {abaAtiva === "ciclo" && <CicloEstudos user={user} />}
-                    {abaAtiva === "flashcards" && <Flashcards user={user} />}
+                        <div className={abaAtiva === "cronometro" ? "block" : "hidden"}>
+                            <EstudarAgora user={user} />
+                        </div>
+                        {abaAtiva === "materias" && <Materias user={user} />}
+                        {abaAtiva === "ciclo" && <CicloEstudos user={user} />}
+                        {abaAtiva === "flashcards" && <Flashcards user={user} />}
 
-                    {abaAtiva === "calendario" && <Calendario user={user} />}
-                    {abaAtiva === "tarefas" && <GerenciadorTarefas user={user} />}
-                    {abaAtiva === "revisoes" && <AgendaRevisoes user={user} />}
+                        {abaAtiva === "calendario" && <Calendario user={user} />}
+                        {abaAtiva === "tarefas" && <GerenciadorTarefas user={user} />}
+                        {abaAtiva === "revisoes" && <AgendaRevisoes user={user} />}
 
-                    {abaAtiva === "historico" && <Historico user={user} />}
-                    {abaAtiva === "amizades" && <Friendships />}
-                    {abaAtiva === "anotacoes" && <Anotacoes user={user} />}
-                </section>
+                        {abaAtiva === "historico" && <Historico user={user} />}
+                        {abaAtiva === "amizades" && <Friendships />}
+                        {abaAtiva === "anotacoes" && <Anotacoes user={user} />}
+                    </section>
+                )}
             </main>
         </div>
     );
